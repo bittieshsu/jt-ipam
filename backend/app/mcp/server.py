@@ -232,6 +232,13 @@ def build_mcp_app() -> FastAPI:
             user = await _load_principal(mcfg.mcp_principal_user_id)
             readonly = True
             await _limit(f"mcp_key:{mcfg.mcp_principal_user_id}")
+            # 最後使用時間（設定頁顯示；重產前看得出還有沒有用戶端在用）。記不下來不影響請求本身
+            try:
+                from app.services.system_config import record_mcp_key_use
+                async with SessionLocal() as _s:
+                    await record_mcp_key_use(_s, token, request.client.host if request.client else None)
+            except Exception:  # pragma: no cover - 防護
+                pass
         if user is None:
             # 一般 API 權杖：唯讀 scope 的 token 同樣進 readonly 模式
             user, readonly = await resolve_token(token)

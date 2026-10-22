@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -53,6 +54,11 @@ def normalize_opnsense(rows: list[Any]) -> list[dict[str, str]]:
             "descr": _norm_val(r.description)[:200],
             "disabled": "0" if r.enabled else "1",
         })
+        # 系統自動產生的規則（OPNsense 新版 API 連它們一起回傳，raw 帶 is_automatic）：只在這種規則上加
+        # auto 欄位 —— 對所有規則加欄位會讓既有規則在下一輪全部變成「修改」
+        raw = getattr(r, "raw", None)
+        if isinstance(raw, dict) and raw.get("is_automatic") in (True, 1, "1", "true"):
+            out[-1]["auto"] = "1"
     return out
 
 
@@ -173,21 +179,51 @@ def rules_hash(rules: list[dict[str, str]]) -> str:
     return hashlib.sha256("\n".join(canon).encode("utf-8")).hexdigest()
 
 
-def diff_rules(old: list[dict[str, str]], new: list[dict[str, str]]) -> dict[str, list]:
-    """以 key 對齊的 added / removed / changed。changed 附上變了哪些欄位。"""
+_AUTO_KEY = re.compile(r"[0-9a-f]{32}")
+
+
+def _is_auto(row: dict[str, str]) -> bool:
+    return row.get("auto") == "1"
+
+
+def _was_auto(row: dict[str, str]) -> bool:
+    """舊快照裡的列：升級當下那份還沒有 auto 標記，OPNsense 系統規則的識別是 32 位十六進位
+    （使用者規則是帶連字號的 UUID）。只用在「被移除、沒有對應新列」的舊列上。"""
+    return _is_auto(row) or ("auto" not in row and bool(_AUTO_KEY.fullmatch(row.get("key") or "")))
+
+
+def diff_rules(old: list[dict[str, str]], new: list[dict[str, str]]) -> dict[str, Any]:
+    """以 key 對齊的 added / removed / changed。changed 附上變了哪些欄位。
+
+    系統自動產生的規則（auto，10-22）另外放在 diff["auto"]：它們由防火牆依設定自己產生
+    （anti-lockout、預設拒絕、封鎖表…），不是管理員新增的，不算規則異動、不發通知，但留著可查。
+    auto 欄位本身不算內容變更（替舊快照補標記不可以變成整批「修改」）。
+    """
     old_by = {r["key"]: r for r in old if r.get("key")}
     new_by = {r["key"]: r for r in new if r.get("key")}
-    added = [new_by[k] for k in new_by.keys() - old_by.keys()]
-    removed = [old_by[k] for k in old_by.keys() - new_by.keys()]
-    changed = []
+    user: dict[str, list] = {"added": [], "removed": [], "changed": []}
+    auto: dict[str, list] = {"added": [], "removed": [], "changed": []}
+    for k in new_by.keys() - old_by.keys():
+        (auto if _is_auto(new_by[k]) else user)["added"].append(new_by[k])
+    for k in old_by.keys() - new_by.keys():
+        (auto if _was_auto(old_by[k]) else user)["removed"].append(old_by[k])
     for k in old_by.keys() & new_by.keys():
-        fields = [f for f in new_by[k] if old_by[k].get(f) != new_by[k].get(f)]
+        fields = [f for f in new_by[k] if f != "auto" and old_by[k].get(f) != new_by[k].get(f)]
         if fields:
-            changed.append({"key": k, "fields": fields,
-                            "old": {f: old_by[k].get(f) for f in fields},
-                            "new": {f: new_by[k].get(f) for f in fields},
-                            "descr": new_by[k].get("descr") or old_by[k].get("descr")})
-    return {"added": added, "removed": removed, "changed": changed}
+            (auto if _is_auto(new_by[k]) else user)["changed"].append({
+                "key": k, "fields": fields,
+                "old": {f: old_by[k].get(f) for f in fields},
+                "new": {f: new_by[k].get(f) for f in fields},
+                "descr": new_by[k].get("descr") or old_by[k].get("descr")})
+    out: dict[str, Any] = dict(user)
+    if any(auto.values()):
+        out["auto"] = auto
+    return out
+
+
+def is_alertable(diff: dict[str, Any] | None) -> bool:
+    """管理員改了規則才通知：只看使用者規則，系統自動規則的變動不算。"""
+    return bool(diff and (diff.get("added") or diff.get("removed") or diff.get("changed")))
 
 
 async def snapshot_if_changed(
@@ -221,6 +257,11 @@ async def snapshot_if_changed(
         return None
 
     diff = diff_rules(list(prev.rules), rules) if prev is not None else None
+    if prev is not None and diff is not None and not is_alertable(diff) and "auto" not in diff:
+        # 內容沒有任何變動，只是標記不同（例如替系統規則補上 auto）：更新上一份，不多存一列
+        prev.rules_hash, prev.rules, prev.rule_count = h, rules, len(rules)
+        await session.flush()
+        return None
     # taken_at 用應用層時間，不能靠 server_default now()：PostgreSQL 的 now() 是
     # **交易**時間戳 —— 同一交易內兩份快照時間相同，「取最新一份」的排序就會抖動
     #（測試在單一交易裡連拍兩份時抓到的；prod 上兩輪 sync 也可能被批次包在一起）。
@@ -328,7 +369,7 @@ async def run_sentinel(session: AsyncSession, *, source_type: str,
         diff = await snapshot_if_changed(
             session, source_type=source_type, instance_id=instance.id,
             instance_name=instance.name, rules=rules)
-        if diff and (diff.get("added") or diff.get("removed") or diff.get("changed")):
+        if is_alertable(diff):                       # 系統自動規則的變動不通知
             await notify_rule_change(session, source_type=source_type,
                                      instance_name=instance.name, diff=diff)
     except Exception:
@@ -429,6 +470,7 @@ async def analyze_change(session: AsyncSession, user: Any, snap: Any) -> dict[st
     # 模型走「AI 判讀」設定（沒設＝對話模型）；解讀出自哪個模型是判讀品質的一部分
     # （不同模型可信度不同），跟著結果一起回
     card, model = await interpret_chat(session, prompt, timeout=120.0,
-                                       max_output_tokens=900, no_thinking=True)
-    return {"id": str(snap.id), "card": card.strip(), "model": model,
+                                       max_output_tokens="auto", no_thinking=True)
+    from app.services.ai import finish_text
+    return {"id": str(snap.id), "card": await finish_text(session, user, card), "model": model,
             "disclaimer": "此為語言模型依異動內容與 IPAM 證據所做的推測，請對照原始資料後再行動。"}

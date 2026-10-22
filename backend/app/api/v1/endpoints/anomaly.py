@@ -307,7 +307,7 @@ async def attack_surface_analyze(
                 await asyncio.sleep(0.05)
             text, model = await task
             yield "data: " + _json.dumps(
-                {"type": "done", "text": (text or "").strip(), "model": model, "facts": facts,
+                {"type": "done", "text": await ai_mod.finish_text(session, user, text or ""), "model": model, "facts": facts,
                  "elapsed": round(time.monotonic() - started, 1),
                  "disclaimer": "此為語言模型依清單統計所做的判讀，請對照原始資料後再行動。"},
                 ensure_ascii=False) + "\n\n"

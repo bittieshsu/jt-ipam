@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useExportBusy } from "../useExportBusy";
 
 describe("useExportBusy（使用者 2026-10-08：選了檔案格式、正在處理時按鈕要反灰並轉圈）", () => {
@@ -15,11 +15,12 @@ describe("useExportBusy（使用者 2026-10-08：選了檔案格式、正在處�
 
   it("非同步的產檔要等它做完才恢復", async () => {
     const { exporting, run } = useExportBusy();
-    let release!: () => void;
+    let release: (() => void) | undefined;
     const p = run(() => new Promise<void>((r) => { release = r; }));
-    await new Promise((r) => setTimeout(r, 30));
+    // 等到產檔真的開始（先讓出一個畫面）；固定等 30ms 在機器忙的時候不夠（10-22 發版時與後端全套測試同跑失敗過）
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"), { timeout: 2000 });
     expect(exporting.value).toBe(true);
-    release();
+    release!();
     await p;
     expect(exporting.value).toBe(false);
   });

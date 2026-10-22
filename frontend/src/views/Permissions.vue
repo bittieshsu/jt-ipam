@@ -21,7 +21,7 @@ import {
   type User, type Group,
 } from "@/api/admin";
 import {
-  listPermissions, upsertPermission, deletePermission, listRoles,
+  listPermissions, upsertPermission, deletePermission, listRoles, getPermissionSummary,
   type PermissionGrant, type PermObjectType, type PermLevel,
 } from "@/api/permissions";
 import { UsersIcon, DeleteIcon, PlusIcon, AdminIcon, EditIcon } from "@/icons";
@@ -35,6 +35,11 @@ const msg = useMessage();
 const route = useRoute();
 
 const users = ref<User[]>([]);
+/** 帳號 id → 角色名稱與直接物件授權數（清單的「權限」欄） */
+const summary = ref<Record<string, { roles: string[]; grants: number }>>({});
+async function loadSummary() {
+  try { summary.value = await getPermissionSummary(); } catch { /* 清單照常顯示，只是少了這一欄 */ }
+}
 const roles = ref<Group[]>([]);
 const loading = ref(false);
 const { query: filterQ, filtered: filteredUsers } = useTableQuickFilter(users);
@@ -86,6 +91,7 @@ async function loadLists() {
       listRoles(),
     ]);
     users.value = us.items;
+    void loadSummary();
     roles.value = gs.items;
     objectTypes.value = r.object_types;
     levels.value = r.levels;
@@ -125,6 +131,7 @@ async function toggleRole(role: Group, on: boolean) {
     const next = new Set(userRoleIds.value);
     if (on) next.add(role.id); else next.delete(role.id);
     userRoleIds.value = next;
+    void loadSummary();
     msg.success(t("common.ok"));
   } catch (e) { msg.error(apiErrMsg(e)); }
   finally { busyRole.value = null; }
@@ -145,12 +152,13 @@ async function addGrant() {
     msg.success(t("common.saved"));
     fObjs.value = [];
     grants.value = await listPermissions("user", sel.value.id);
+    void loadSummary();
   } catch (e: any) { msg.error(e?.response?.data?.detail ?? t("perm.save_failed")); }
   finally { saving.value = false; }
 }
 async function removeGrant(id: string) {
   if (!sel.value) return;
-  try { await deletePermission(id); grants.value = await listPermissions("user", sel.value.id); }
+  try { await deletePermission(id); grants.value = await listPermissions("user", sel.value.id); void loadSummary(); }
   catch (e) { msg.error(apiErrMsg(e)); }
 }
 function targetLabel(g: PermissionGrant): string {
@@ -164,6 +172,16 @@ const userCols = computed<DataTableColumns<User>>(() => [
   { title: "Email", key: "email", minWidth: 160, ellipsis: { tooltip: true } },
   { title: t("cols.admin"), key: "is_admin", width: 90,
     render: (u) => u.is_admin ? h(NTag, { size: "small", type: "error" }, () => t("perm.superuser")) : "—" },
+  // 權限：掛了哪些角色＋直接的物件授權幾筆（使用者 10-22：不用一個一個點開才知道）
+  { title: t("perm.col_summary"), key: "summary", minWidth: 220,
+    render: (u) => {
+      const s = summary.value[u.id];
+      if (!s || (!s.roles.length && !s.grants)) return h("span", { style: "opacity:.45" }, t("perm.none"));
+      return h(NSpace, { size: 4, wrap: true }, () => [
+        ...s.roles.map((r) => h(NTag, { size: "small", type: "info", bordered: false }, () => r)),
+        ...(s.grants ? [h(NTag, { size: "small", bordered: false }, () => t("perm.object_grants_n", { n: s.grants }))] : []),
+      ]);
+    } },
   // 與使用者頁一致：icon 按鈕 + tooltip（文字按鈕在窄視窗會被欄寬切掉，且全站只有這裡是文字）
   { title: t("common.actions"), key: "actions", width: 72, align: "center",
     className: "col-actions",
@@ -244,7 +262,13 @@ onMounted(async () => {
           </n-list>
 
           <n-collapse style="margin-top: 16px">
-            <n-collapse-item :title="t('perm.advanced_grants')" name="adv">
+            <n-collapse-item name="adv">
+              <!-- 收合時也看得出裡面有設定（使用者 10-22）：標題旁顯示筆數 -->
+              <template #header>
+                <span>{{ t("perm.advanced_grants") }}</span>
+                <n-tag v-if="grants.length" size="small" type="warning" round :bordered="false" style="margin-left: 8px"
+                       data-testid="perm-adv-count">{{ grants.length }}</n-tag>
+              </template>
               <p style="opacity:.6;font-size:12px;margin:0 0 10px">{{ t("perm.advanced_hint") }}</p>
               <n-space align="center" :wrap="true" style="margin-bottom: 10px">
                 <n-select v-model:value="fObjType" :options="typeSelOptions" style="width: 130px" size="small" />

@@ -109,7 +109,7 @@ import { listDhcpRanges } from "@/api/integrations";
 import { getSubnetUsage, deleteSubnet } from "@/api/subnets";
 import { getSection } from "@/api/sections";
 import { useSubnetTree } from "@/composables/useSubnetTree";
-import { getDevice, listVLANs, listVRFs, type VLAN, type VRF } from "@/api/basic";
+import { getDevice, listLocations, listVLANs, listVRFs, type VLAN, type VRF } from "@/api/basic";
 import SubnetGrid from "@/components/SubnetGrid.vue";
 import SubnetRanges from "@/components/SubnetRanges.vue";
 import { listIPRanges, type IPRange } from "@/api/ipRanges";
@@ -198,6 +198,16 @@ function onGatewaySnmp() {
 }
 
 const subnet = ref<Subnet | null>(null);
+// 地點（使用者 10-22：詳情要有地點；編輯表單本來就有，只是這裡沒顯示）
+const locationName = ref<string | null>(null);
+watch(() => subnet.value?.location_id, async (lid) => {
+  locationName.value = null;
+  if (!lid) return;
+  try {
+    const res = await listLocations();
+    locationName.value = res.items.find((l) => l.id === lid)?.name ?? null;
+  } catch { locationName.value = null; }
+}, { immediate: true });
 const usage = ref<SubnetUsage | null>(null);
 const addresses = ref<IPAddress[]>([]);
 // 超大規模：一個 /16 有六萬多個位址。這一頁一次最多載入 1,000 筆（再多瀏覽器就吃不消），
@@ -895,11 +905,16 @@ onMounted(() => {
             </a>
             <span v-else>—</span>
           </n-descriptions-item>
-          <n-descriptions-item :label="t('common.description')" :span="2">
+          <n-descriptions-item :label="t('nav.locations')">
+            <a v-if="locationName" href="#" class="entity-link" data-testid="subnet-location"
+               @click.prevent="router.push({ name: 'locations' })">{{ locationName }}</a>
+            <span v-else>—</span>
+          </n-descriptions-item>
+          <n-descriptions-item :label="t('common.description')">
             {{ subnet.description ?? "—" }}
           </n-descriptions-item>
           <n-descriptions-item :label="t('common.created_at')">{{ fmtDateTime(subnet.created_at) }}</n-descriptions-item>
-          <n-descriptions-item :label="t('common.updated_at')" :span="2">{{ fmtDateTime(subnet.updated_at) }}</n-descriptions-item>
+          <n-descriptions-item :label="t('common.updated_at')">{{ fmtDateTime(subnet.updated_at) }}</n-descriptions-item>
         </n-descriptions>
       </n-card>
 

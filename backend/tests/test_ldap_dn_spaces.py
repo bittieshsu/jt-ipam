@@ -284,3 +284,20 @@ async def test_openldap_is_not_mistaken_for_ad(monkeypatch) -> None:
     r = await ldap_auth.test_connection(_cfg(user_filter="(uid={username})"))
     assert r["directory"] == "ldap"
     assert r["warnings"] == []                                         # OpenLDAP 用 uid 是對的
+
+
+@pytest.mark.parametrize("evil", [" " * 50000 + "x", "(" + " " * 50000 + "x", "{" + " " * 50000, "&" + " " * 50000 + "x"])
+def test_normalize_filter_is_linear(evil: str) -> None:
+    """CodeQL #55（py/polynomial-redos，2026-10-21）：`\\s+\\)` 這類正規表示式在一長串不接 `)` 的空白上是平方級。
+    改成逐字元掃一遍；5 萬個空白也要在很短時間內處理完。"""
+    import time
+    t = time.monotonic()
+    ldap_auth.normalize_filter(evil)
+    assert time.monotonic() - t < 0.5
+
+
+async def test_saving_rejects_an_overlong_filter(client, auth_headers) -> None:
+    body = {"enabled": False, "server": "dc1.corp.example", "port": 389, "use_ssl": False, "use_starttls": False,
+            "search_base": "DC=corp,DC=example", "user_filter": "(|" + "(cn=x)" * 200 + "(sAMAccountName={username}))"}
+    r = await client.put("/api/v1/system/ldap", json=body, headers=auth_headers)
+    assert r.status_code == 422, r.text

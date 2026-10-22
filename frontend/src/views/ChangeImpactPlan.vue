@@ -102,10 +102,14 @@
               {{ t(`change_impact.completeness.${run.completeness}`) }}
             </span>
           </div>
-          <div v-for="k in ['blockers', 'review', 'change_required', 'gaps']" :key="k" class="cip-stat"
+          <!-- 「需變更」是「需覆核」的一部分（使用者看到 41 與 40 並排，以為是兩群不同的項目）→ 寫在需覆核底下 -->
+          <div v-for="k in ['blockers', 'review', 'gaps']" :key="k" class="cip-stat"
                :class="{ 'cip-stat--bad': k === 'blockers' && (run.counts?.blockers ?? 0) > 0 }">
             <div class="cip-stat__k">{{ t(`change_impact.count.${k}`) }}</div>
             <div class="cip-stat__v">{{ run.counts ? (run.counts[k] ?? 0) : "—" }}</div>
+            <div v-if="k === 'review' && run.counts?.change_required" class="cip-muted" data-testid="cip-change-required">
+              {{ t("change_impact.count.of_which_change", { n: run.counts.change_required }) }}
+            </div>
           </div>
           <div class="cip-stat cip-stat--time">
             <div class="cip-stat__k">{{ t("change_impact.analyzed_at") }}</div>
@@ -171,18 +175,25 @@
           <n-data-table :columns="evidenceCols" :data="evidence" size="small" :bordered="false"
                         :row-key="(r: ImpactEvidence) => r.id" :scroll-x="820" data-testid="cip-evidence" />
           <div class="cip-section-k" style="margin-top: 14px">{{ t("change_impact.sources_title") }}</div>
-          <div class="cip-sources">
-            <span v-for="s in run.scope_manifest.sources ?? []" :key="s.kind + s.name" class="cip-source">
-              {{ s.name }} <span class="cip-muted">（{{ s.kind }}，{{ t(`change_impact.fresh.${s.freshness}`) }}）</span>
+          <!-- 用到的來源：一個來源一枚，名稱＋種類，前面的點是資料新鮮度（使用者 10-21：原本一串括號太難看） -->
+          <div class="cip-sources" data-testid="cip-sources">
+            <span v-for="s in sortedSources" :key="s.kind + s.name" class="cip-source"
+                  :title="s.last_sync_at ? `${t('change_impact.last_sync')} ${fmtDateTime(s.last_sync_at)}` : undefined">
+              <i class="cip-source__dot" :class="`fr-${freshTone(s.freshness)}`" />
+              <span class="cip-source__name">{{ s.name }}</span>
+              <span class="cip-source__kind">{{ kindLabel(s.kind) }}</span>
+              <span v-if="freshTone(s.freshness) !== 'ok'" class="cip-source__fr" :class="`fr-${freshTone(s.freshness)}`">
+                {{ te(`change_impact.fresh.${s.freshness}`) ? t(`change_impact.fresh.${s.freshness}`) : s.freshness }}
+              </span>
             </span>
-            <span v-if="!(run.scope_manifest.sources ?? []).length" class="cip-muted">—</span>
+            <span v-if="!sortedSources.length" class="cip-muted">—</span>
           </div>
         </n-tab-pane>
 
         <!-- 待辦與復原 -->
         <n-tab-pane name="tasks" :tab="t('change_impact.tab_tasks', { n: tasks.length })">
           <div class="cip-manual-note">{{ t("change_impact.manual_note") }}</div>
-          <!-- 依階段分區（使用者 2026-10-08：前置、變更、驗證、復原要視覺上容易識別）：色條＋標題＋數量＋說明 -->
+          <!-- 依階段分區（使用者 2026-10-08：前置、變更、驗證、復原要視覺上容易識別）：淡色標題列＋標題＋數量＋說明 -->
           <div v-for="ph in phases" :key="ph" :class="['cip-phase', `cip-phase--${ph}`]" :data-testid="`cip-phase-${ph}`">
             <div class="cip-phase__head">
               <span class="cip-phase__name">{{ t(`change_impact.phase.${ph}`) }}</span>
@@ -659,17 +670,32 @@ const findingCols = computed<DataTableColumns<ImpactFinding>>(() => [
   { title: t("change_impact.col_strength"), key: "evidence_strength", width: 100,
     render: (r) => t(`change_impact.strength.${r.evidence_strength}`) },
 ]);
+// 欄寬：時間與時效固定且不換行，物件欄吃剩下的寬度（使用者 10-21：物件欄太空、右邊的時間被擠成兩行）
+const nowrap = (v: string) => h("span", { style: "white-space: nowrap" }, v);
 const evidenceCols = computed<DataTableColumns<ImpactEvidence>>(() => [
-  { title: t("change_impact.col_source"), key: "source_type", width: 100, render: (r) => catLabel(r.source_type) },
-  { title: t("change_impact.col_object"), key: "label", minWidth: 260,
+  { title: t("change_impact.col_source"), key: "source_type", width: 110, render: (r) => nowrap(catLabel(r.source_type)) },
+  { title: t("change_impact.col_object"), key: "label", minWidth: 220,
     render: (r) => h("span", { class: "cip-mono cip-wrap" }, r.label) },
-  { title: t("change_impact.observed"), key: "observed_at", width: 160,
-    render: (r) => (r.observed_at ? fmtDateTime(r.observed_at) : "—") },
-  { title: t("change_impact.collected"), key: "collected_at", width: 160,
-    render: (r) => (r.collected_at ? fmtDateTime(r.collected_at) : "—") },
-  { title: t("change_impact.col_freshness"), key: "freshness", width: 110,
+  { title: t("change_impact.observed"), key: "observed_at", width: 180,
+    render: (r) => nowrap(r.observed_at ? fmtDateTime(r.observed_at) : "—") },
+  { title: t("change_impact.collected"), key: "collected_at", width: 180,
+    render: (r) => nowrap(r.collected_at ? fmtDateTime(r.collected_at) : "—") },
+  { title: t("change_impact.col_freshness"), key: "freshness", width: 120,
     render: (r) => (te(`change_impact.fresh.${r.freshness}`) ? t(`change_impact.fresh.${r.freshness}`) : r.freshness) },
 ]);
+
+/** 來源依種類、名稱排；新鮮度分三級給顏色（最新／即時＝正常，過期與失敗＝要注意，其餘＝不確定） */
+const sortedSources = computed(() => [...(run.value?.scope_manifest?.sources ?? [])]
+  .sort((a, b) => kindLabel(a.kind).localeCompare(kindLabel(b.kind)) || a.name.localeCompare(b.name)));
+function kindLabel(kind: string): string {
+  const k = `change_impact.param.kind.${kind}`;
+  return te(k) ? t(k) : kind;
+}
+function freshTone(f: string): "ok" | "bad" | "unknown" {
+  if (f === "fresh" || f === "current") return "ok";
+  if (f === "stale" || f === "failed" || f === "partial" || f === "never_synced") return "bad";
+  return "unknown";
+}
 
 async function loadRunData(runId: string) {
   const [r, fs, ev, gp, ai] = await Promise.all([getRun(runId), listFindings(runId), listEvidence(runId),
@@ -1002,16 +1028,28 @@ onBeforeUnmount(() => { if (pollTimer) clearTimeout(pollTimer); });
   border-bottom: 1px solid rgba(128, 128, 128, .3); }
 .cip-gt td { padding: 7px 10px; border-bottom: 1px solid rgba(128, 128, 128, .18); vertical-align: top; line-height: 1.5; }
 .cip-gt tbody tr:nth-child(even) td { background: rgba(128, 128, 128, .04); }
-.cip-sources { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; }
+.cip-sources { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.cip-source { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, .22); background: rgba(128, 128, 128, .04); line-height: 1.4; }
+.cip-source__dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.cip-source__dot.fr-ok { background: #18a058; }
+.cip-source__dot.fr-bad { background: #d03050; }
+.cip-source__dot.fr-unknown { background: rgba(128, 128, 128, .55); }
+.cip-source__name { font-weight: 600; }
+.cip-source__kind { font-size: 12px; opacity: .6; }
+.cip-source__fr { font-size: 12px; font-weight: 600; }
+.cip-source__fr.fr-bad { color: #d03050; }
+.cip-source__fr.fr-unknown { opacity: .65; }
 .cip-manual-note { font-size: 12.5px; opacity: .7; margin-bottom: 8px; }
-.cip-phase { --ph: #2080f0; margin-bottom: 12px; border: 1px solid rgba(128, 128, 128, .2); border-left: 4px solid var(--ph);
+/* 階段分區：淡色標題列＋標題色就夠分辨，不加左側色條（使用者 10-21：看起來很 low） */
+.cip-phase { --ph: #2080f0; margin-bottom: 12px; border: 1px solid rgba(128, 128, 128, .2);
   border-radius: 8px; padding: 0 12px 4px; }
 .cip-phase--precheck { --ph: #2080f0; }
 .cip-phase--change { --ph: #f0a020; }
 .cip-phase--verify { --ph: #18a058; }
 .cip-phase--rollback { --ph: #d03050; }
 .cip-phase__head { display: flex; align-items: baseline; gap: 8px; padding: 9px 0 7px; margin: 0 -12px 2px -12px;
-  padding-left: 12px; background: color-mix(in srgb, var(--ph) 8%, transparent); border-radius: 0 8px 0 0; }
+  padding-left: 12px; background: color-mix(in srgb, var(--ph) 8%, transparent); border-radius: 8px 8px 0 0; }
 .cip-phase__name { font-weight: 700; font-size: 14px; color: var(--ph); }
 .cip-phase__count { font-size: 11px; font-weight: 700; padding: 0 7px; border-radius: 9px; color: #fff; background: var(--ph); }
 .cip-phase__desc { font-size: 12px; opacity: .65; }

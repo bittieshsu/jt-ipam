@@ -35,7 +35,7 @@ import ChangePasswordModal from "@/components/ChangePasswordModal.vue";
 import {
   // 主導覽
   DashboardIcon, SectionsIcon, SubnetsIcon, AddressesIcon, IPChangesIcon, VlansIcon, VrfsIcon,
-  NatIcon, DevicesIcon, IdentifyIcon, MacIcon, RacksIcon, LocationsIcon, RequestsIcon, TopologyIcon,
+  NatIcon, DevicesIcon, IdentifyIcon, ScreensIcon, OpenNewWindowIcon, MacIcon, RacksIcon, LocationsIcon, RequestsIcon, TopologyIcon,
   ToolsIcon, SettingsIcon, TasksIcon,
   // Phase 3 / Admin
   Phase3Icon, VirtualizationIcon, PhysicalIcon, PowerIcon, VpnIcon,
@@ -257,6 +257,13 @@ watch(() => route.name, (now, before) => {
 const menuOptions = computed<MenuOption[]>(() => {
   const base: MenuOption[] = [
     { label: () => t("nav.dashboard"),   key: "dashboard",  icon: renderIcon(DashboardIcon) },
+    // 戰情室：另開分頁全螢幕（投射大螢幕用，2026-10-21；使用者要求放在儀表板下面）
+    // 右邊的小圖示說明「會開新視窗」（使用者 2026-10-21）；render 出來的節點吃不到 scoped 樣式，用行內樣式
+    { label: () => h("span", { style: "display:inline-flex;align-items:center;gap:6px", title: t("nav.opens_new_window") }, [
+        t("nav.warroom"),
+        h(NIcon, { component: OpenNewWindowIcon, size: 14, style: "opacity:.55", "aria-label": t("nav.opens_new_window") }),
+      ]),
+      key: "warroom", icon: renderIcon(ScreensIcon) },
     { label: () => t("nav.sections"),    key: "sections",   icon: renderIcon(SectionsIcon) },
     { label: () => t("nav.subnets"),     key: "subnets",    icon: renderIcon(SubnetsIcon), children: subnetTreeChildren.value },
     { label: () => t("nav.addresses"),   key: "addresses",  icon: renderIcon(AddressesIcon) },
@@ -328,6 +335,7 @@ const menuOptions = computed<MenuOption[]>(() => {
         icon: renderIcon(AdminIcon),
         children: [
           { label: () => t("nav.audit"),         key: "audit",          icon: renderIcon(AuditIcon) },
+          { label: () => t("nav.warroom_settings"), key: "warroom-settings", icon: renderIcon(ScreensIcon) },
           { label: () => t("nav.users"),         key: "users",          icon: renderIcon(UsersIcon) },
           { label: () => t("nav.groups"),        key: "groups",         icon: renderIcon(GroupsIcon) },
           { label: () => t("nav.permissions"),   key: "permissions",    icon: renderIcon(AdminIcon) },
@@ -462,6 +470,10 @@ function handleMenu(key: string) {
     return;
   }
   if (key.startsWith("subnetgrp:")) return; // 群組節點只負責展開/收合
+  if (key === "warroom") {                   // 戰情室另開分頁（全螢幕、投射大螢幕），不取代目前的工作畫面
+    window.open(router.resolve({ name: "warroom" }).href, "_blank", "noopener");
+    return;
+  }
   router.push({ name: key }).catch(() => {});
 }
 

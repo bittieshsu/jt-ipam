@@ -18,6 +18,7 @@ from app.models.advanced import (
 )
 from app.models.ai_chat import AIChatConversation, AIChatMessage
 from app.models.ai_finding import AIFinding
+from app.models.anomaly_observation import AnomalyObservation
 from app.models.audit import AuditLog
 from app.models.background_task import BackgroundTask
 from app.models.base import Base
@@ -141,6 +142,7 @@ __all__ = [
     "AIChatMessage",
     "APIToken",
     "ARPEntry",
+    "AnomalyObservation",
     "AuditLog",
     "Base",
     "Cable",

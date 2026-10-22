@@ -277,11 +277,14 @@ async def build_topology(
     # 批次查每台裝置的主要 IP（給 node 帶上，連線卡片可顯示兩端 IP）
     pip_ids = {d.primary_ip_id for d in devices if d.primary_ip_id}  # type: ignore[attr-defined]
     pip_map: dict[uuid.UUID, str] = {}
+    mac_map: dict[uuid.UUID, str] = {}      # 主要 IP 的 MAC：選取裝置後「查看 MAC 歷程」用
     if pip_ids:
-        for iid, ipval in (await session.execute(
-            select(IPAddress.id, IPAddress.ip).where(in_values(IPAddress.id, pip_ids))
+        for iid, ipval, mac in (await session.execute(
+            select(IPAddress.id, IPAddress.ip, IPAddress.mac).where(in_values(IPAddress.id, pip_ids))
         )).all():
             pip_map[iid] = str(ipval).split("/")[0]
+            if mac:
+                mac_map[iid] = str(mac)
     device_objs: dict[str, Device] = {}
     for d in devices:  # type: ignore[assignment]
         device_objs[str(d.id)] = d  # type: ignore[assignment]
@@ -294,6 +297,7 @@ async def build_topology(
                 "model": d.model,
                 "serial": d.serial,
                 "ip": pip_map.get(d.primary_ip_id) if d.primary_ip_id else None,
+                "mac": mac_map.get(d.primary_ip_id) if d.primary_ip_id else None,
                 "rack_id": str(d.rack_id) if d.rack_id else None,
                 "location_id": str(d.location_id) if d.location_id else None,
             }

@@ -26,6 +26,12 @@ export async function listPermissions(principalType: string, principalId: string
   return data;
 }
 
+/** 每個帳號掛了哪些角色、有幾筆直接的物件授權（權限指派清單的「權限」欄）。 */
+export async function getPermissionSummary(): Promise<Record<string, { roles: string[]; grants: number }>> {
+  const { data } = await apiClient.get("/api/v1/system/permissions/summary");
+  return data;
+}
+
 /** 不帶 principal → 後端回傳所有已指派的權限（總覽用）。 */
 export async function listAllPermissions(): Promise<PermissionGrant[]> {
   const { data } = await apiClient.get<PermissionGrant[]>("/api/v1/system/permissions");

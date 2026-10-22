@@ -83,6 +83,9 @@ const _tabsShape = {
   tabGapSmallLine: "2px", tabGapMediumLine: "4px", tabGapLargeLine: "4px",
 };
 
+/* 單選按鈕組（分層／自動排列這類）的 small 高度要與全站 small 按鈕一致：下面的 CSS 把 small 按鈕統一拉到 34px，
+   單選按鈕組沒跟上，同一排會高低不齊（使用者 10-21 指出 IP 變更評估關係圖的工具列） */
+const _radioShape = { buttonHeightSmall: "34px" };
 const lightOverrides = {
   common: {
     ..._common,
@@ -110,6 +113,7 @@ const lightOverrides = {
   Card: { color: "#ffffff", borderColor: "#e8ebf2" },
   Menu: _menuActive,
   DataTable: { thColor: TH_LIGHT, borderColor: "#eef1f6", tdColorHover: "#f7f9fc" },
+  Radio: _radioShape,
   Tabs: { ..._tabsShape, tabTextColorActiveLine: PRIMARY, tabTextColorActiveBar: PRIMARY, barColor: PRIMARY,
           tabTextColorLine: "#334155", tabTextColorBar: "#334155" },
 };
@@ -154,6 +158,7 @@ const darkOverrides = {
     itemIconColorChildActive: "#34d399",
   },
   DataTable: { thColor: TH_DARK_BASE, borderColor: "rgba(255,255,255,0.07)", tdColorHover: "rgba(255,255,255,0.04)" },
+  Radio: _radioShape,
   Tabs: { ..._tabsShape, tabTextColorActiveLine: "#34d399", tabTextColorActiveBar: "#34d399", barColor: "#34d399",
           tabTextColorLine: "#c3cfdf", tabTextColorBar: "#c3cfdf" },
 };

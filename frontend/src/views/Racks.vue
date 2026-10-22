@@ -893,7 +893,7 @@ function doMergedExport(key: string) {
                 </div>
                 <rack-diagram :diagram="d" :show-legend="false" :editable="isAdmin"
                               :floor-align-to="maxRoomU" :face="mergedFace" :shared-zoom="roomZoom" :controls="false"
-                              @measured="onRackMeasured"
+                              @measured="onRackMeasured" @update:face="mergedFace = $event"
                               bare @pick-empty="onPickEmpty" />
               </div>
             </div>

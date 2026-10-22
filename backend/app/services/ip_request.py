@@ -156,7 +156,8 @@ async def _deliver_to_approvers(
         f"按鈕無法點選時，請複製此連結：<br>{_esc(abs_link)}</p></div>"
     )
     for u in approvers:
-        if not u.email:
+        from app.services.notification import deliverable_email
+        if not deliverable_email(u.email):
             continue
         try:
             await send_email_via_config(

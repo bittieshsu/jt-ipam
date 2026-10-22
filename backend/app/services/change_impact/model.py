@@ -17,7 +17,9 @@ from typing import Any
 ENGINE_VERSION = "1"
 # 2：M2 加入網路相依、工作負載、服務的規則（2026-10-08）
 # 4：DHCP 範圍發給用戶端的閘道／DNS／NTP／WINS（Technitium，2026-10-08）
-RULES_VERSION = "4"
+# 5：正式站台評估逐筆稽核後修正（2026-10-21）：追 CNAME 鏈、LXC 設定裡的靜態位址要改、
+#    沒綁固定位址的 Wazuh 代理只是參考
+RULES_VERSION = "5"
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,8 @@ RULES: dict[str, Rule] = {
     # ── 舊 IP／裝置 IP 的引用 ──
     "dns.address_record": _r("dns", "change_required", "medium", "review", "explicit", "OLD_IP_IN_ADDRESS_RECORD"),
     "dns.ptr_record": _r("dns", "change_required", "low", "review", "explicit", "OLD_IP_PTR_RECORD"),
+    # 經 CNAME（可能好幾層）指到舊位址的 A 記錄：別名本身不用改，但改完要一起驗證
+    "dns.cname_chain": _r("dns", "reference_only", "low", "informational", "explicit", "DNS_CNAME_CHAIN"),
     # AdGuard 的 DNS 改寫或用戶端設定有這個位址（從主機名稱觀測得知）
     "dns.adguard_entry": _r("dns", "change_required", "medium", "review", "explicit", "ADGUARD_ENTRY"),
     "dhcp.reservation": _r("dhcp", "change_required", "medium", "review", "explicit", "OLD_IP_DHCP_RESERVATION"),
@@ -84,13 +88,16 @@ RULES: dict[str, Rule] = {
     "nat.translation": _r("nat", "change_required", "high", "review", "explicit", "NAT_TRANSLATION"),
     "nat.translation_disabled": _r("nat", "reference_only", "info", "informational", "explicit", "NAT_TRANSLATION_DISABLED"),
     "monitoring.zabbix_host": _r("monitoring", "change_required", "medium", "review", "explicit", "ZABBIX_HOST"),
-    "monitoring.wazuh_agent": _r("monitoring", "reference_only", "low", "review", "explicit", "WAZUH_AGENT"),
+    # 代理會自己回報新位址；綁了固定位址（registerIP）的另有 wazuh_register_ip 要覆核
+    "monitoring.wazuh_agent": _r("monitoring", "reference_only", "low", "informational", "explicit", "WAZUH_AGENT"),
     "monitoring.librenms_device": _r("monitoring", "change_required", "medium", "review", "explicit", "LIBRENMS_DEVICE"),
     "monitoring.ocs_inventory": _r("monitoring", "reference_only", "info", "informational", "explicit", "OCS_INVENTORY"),
     "monitoring.wazuh_register_ip": _r("monitoring", "potential_disruption", "high", "review", "explicit",
                                        "WAZUH_REGISTER_IP"),
     "monitoring.rustdesk_peer": _r("monitoring", "reference_only", "info", "informational", "explicit", "RUSTDESK_PEER"),
     "virt.vm_interface": _r("virt", "reference_only", "info", "informational", "inferred", "VM_INTERFACE"),
+    # 位址寫在虛擬化平台的設定裡（Proxmox LXC 的 net0 ip=…）：改址就是改這裡
+    "virt.config_static_ip": _r("virt", "change_required", "medium", "review", "explicit", "VM_CONFIG_STATIC_IP"),
     "cert.ip_san": _r("cert", "change_required", "high", "review", "explicit", "CERT_IP_SAN"),
     "cert.dns_san_only": _r("cert", "reference_only", "info", "informational", "explicit", "CERT_DNS_SAN_ONLY"),
     "config.subnet_gateway": _r("config", "potential_disruption", "critical", "review", "explicit", "SUBNET_GATEWAY"),

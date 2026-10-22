@@ -19,6 +19,10 @@
       <n-button type="primary" @click="openCreate">
         <template #icon><n-icon><PlusIcon /></n-icon></template>{{ t("esxi.create_title") }}
       </n-button>
+      <!-- 整合設定好之後，抓到的虛擬機在另一頁：直接帶過去（客戶 2026-10-21 設好 Hyper-V 找不到 VM 清單） -->
+      <n-button type="info" ghost data-testid="esxi-view-vms" @click="router.push({ name: 'virt_vmware' })">
+        <template #icon><n-icon><VirtualizationIcon /></n-icon></template>{{ t("virt.view_vms") }}
+      </n-button>
       <ColumnPicker :all="pickerItems" :visible="visibleKeys"
                     @update:visible="setVisible" @reset="resetCols"
                     :order="colPrefs.order.value" @update:order="colPrefs.setOrder" />
@@ -130,6 +134,7 @@ import {
   type DataTableColumns,
 } from "naive-ui";
 import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 import CardTitle from "@/components/CardTitle.vue";
 import ScopeOverlapWarning from "@/components/ScopeOverlapWarning.vue";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -143,6 +148,7 @@ import { useTablePagination } from "@/composables/useTablePagination";
 import { fmtDateTime } from "@/utils/datetime";
 
 const { t } = useI18n();
+const router = useRouter();
 const msg = useMessage();
 const pg = useTablePagination();
 

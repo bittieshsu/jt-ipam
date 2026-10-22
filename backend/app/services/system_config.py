@@ -359,6 +359,54 @@ def mcp_key_valid(cfg: LLMConfig, token: str) -> bool:
     return cfg.mcp_api_key_expires_at is None or cfg.mcp_api_key_expires_at > datetime.now(UTC)
 
 
+#: MCP 金鑰的最後使用（使用者 2026-10-21）：另存一個鍵，綁金鑰指紋 —— 重產後新金鑰自然是「從沒用過」
+MCP_USAGE_KEY = "mcp_key_usage"
+MCP_USE_THROTTLE_S = 60
+_mcp_use_written: dict[str, float] = {}
+
+
+def _mcp_fp(key: str) -> str:
+    import hashlib
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+async def _save_mcp_use(session: AsyncSession, fp: str, ip: str | None) -> None:
+    from sqlalchemy.orm.attributes import flag_modified
+    row = await session.get(SystemSetting, MCP_USAGE_KEY)
+    value = {"fp": fp, "at": datetime.now(UTC).isoformat(), "ip": (ip or "")[:64] or None}
+    if row is None:
+        session.add(SystemSetting(key=MCP_USAGE_KEY, value=value))
+    else:
+        row.value = value
+        flag_modified(row, "value")
+    await session.commit()
+
+
+async def record_mcp_key_use(session: AsyncSession, key: str, ip: str | None) -> None:
+    """MCP 請求用金鑰驗證成功時呼叫。同一把金鑰 MCP_USE_THROTTLE_S 秒內只寫一次。"""
+    import time
+    fp = _mcp_fp(key)
+    now = time.monotonic()
+    if now - _mcp_use_written.get(fp, -1e9) < MCP_USE_THROTTLE_S:
+        return
+    _mcp_use_written[fp] = now
+    await _save_mcp_use(session, fp, ip)
+
+
+async def get_mcp_key_usage(session: AsyncSession, key: str | None) -> tuple[datetime | None, str | None]:
+    """(最後使用時間, 來源 IP)；記錄是別把金鑰的（已重產）或從沒用過 → (None, None)。"""
+    if not key:
+        return None, None
+    row = await session.get(SystemSetting, MCP_USAGE_KEY)
+    v = row.value if row and isinstance(row.value, dict) else {}
+    if v.get("fp") != _mcp_fp(key):
+        return None, None
+    try:
+        return datetime.fromisoformat(str(v.get("at"))), v.get("ip")
+    except ValueError:
+        return None, None
+
+
 async def rotate_mcp_api_key(
     session: AsyncSession,
     *,
@@ -592,7 +640,8 @@ async def set_anomaly_report(session: AsyncSession, report: dict[str, Any], *, t
     """保存這次的結果：進頁面先顯示上次的結果，不用每次都重跑（點去探測再返回，結果曾被清空）。"""
     from fastapi.encoders import jsonable_encoder
 
-    value = {"at": datetime.now(UTC).isoformat(), "trigger": trigger, "report": jsonable_encoder(report)}
+    now = datetime.now(UTC)
+    value = {"at": now.isoformat(), "trigger": trigger, "report": jsonable_encoder(report)}
     row = await session.get(SystemSetting, ANOMALY_REPORT_KEY)
     if row is None:
         session.add(SystemSetting(key=ANOMALY_REPORT_KEY, value=value))
@@ -600,6 +649,15 @@ async def set_anomaly_report(session: AsyncSession, report: dict[str, Any], *, t
         row.value = value
         flag_modified(row, "value")
     await session.flush()
+    # 異常觀測（0224）：報告只留最新一份，逐筆的出現與消失時間另外記（戰情室的異常時序）
+    # 記錄失敗不可以讓異常偵測本身失敗：包在 SAVEPOINT 裡，出錯只記 log
+    from app.services.anomaly_history import record
+    try:
+        async with session.begin_nested():
+            await record(session, value["report"], at=now)
+    except Exception:  # pragma: no cover - 防護
+        import logging
+        logging.getLogger(__name__).exception("anomaly observation recording failed")
 
 
 async def get_anomaly_report(session: AsyncSession) -> dict[str, Any] | None:

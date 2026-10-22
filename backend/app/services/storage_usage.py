@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # ── 資料表 → 功能分類 ─────────────────────────────────────────────────────
 # 依序比對，第一個符合的算數（完整名稱或前綴）。新增資料表要加進來：守門測試會擋「其他」。
 GROUP_RULES: list[tuple[str, tuple[str, ...]]] = [
-    ("history", ("ip_change_log", "ip_liveness_days", "scan_agent_cycles")),
+    ("history", ("ip_change_log", "ip_liveness_days", "scan_agent_cycles", "anomaly_observations")),
     ("audit", ("audit_logs",)),
     ("notifications", ("notifications",)),
     ("change_impact", ("impact_", "change_plan", "change_tasks")),

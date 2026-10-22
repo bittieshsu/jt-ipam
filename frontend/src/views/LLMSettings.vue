@@ -273,6 +273,11 @@ async function doRevealKey() {
 // 金鑰會過期：產生／更換時選有效天數，到期前 14／7／1 天會通知管理員
 const mcpKeyDays = ref(90);
 const mcpKeyDayOptions = computed(() => [30, 90, 180, 365].map((d) => ({ label: t("llm_settings.mcp_key_days_n", { n: d }), value: d })));
+/** 7 天內有 MCP 用戶端用過這把金鑰：重產會讓它立刻斷線，確認框要特別說 */
+const mcpKeyRecentlyUsed = computed(() => {
+  const at = llm.value?.mcp_api_key_last_used_at;
+  return !!at && Date.now() - new Date(at).getTime() < 7 * 86400 * 1000;
+});
 const mcpKeyExpired = computed(() => {
   const s = llm.value?.mcp_api_key_expires_at;
   return !!s && new Date(s).getTime() <= Date.now();
@@ -722,6 +727,13 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
                              : t("llm_settings.mcp_key_expires", { date: fmtDate(llm.mcp_api_key_expires_at) }) }}
           </n-tag>
 
+          <!-- 最後使用：重產前看得出還有沒有用戶端在用（使用者 2026-10-21：重產後自己的 Claude 斷線一週才發現） -->
+          <n-tag v-if="llm.mcp_api_key_set" size="small" :bordered="false" :type="mcpKeyRecentlyUsed ? 'info' : 'default'"
+                 data-testid="mcp-key-last-used">
+            {{ llm.mcp_api_key_last_used_at
+              ? t("llm_settings.mcp_key_last_used", { time: fmtDateTime(llm.mcp_api_key_last_used_at), ip: llm.mcp_api_key_last_used_ip || "—" })
+              : t("llm_settings.mcp_key_never_used") }}
+          </n-tag>
           <n-button v-if="llm.mcp_api_key_set && !mcpKey" size="small" :loading="mcpKeyBusy" @click="doRevealKey">
             <template #icon><n-icon :component="EyeIcon" /></template>{{ t("llm_settings.mcp_key_reveal") }}
           </n-button>
@@ -740,7 +752,12 @@ onMounted(() => { void load(); void loadTools(); void loadSubnets(); });
                 <template #icon><n-icon :component="RefreshIcon" /></template>{{ t("llm_settings.mcp_key_rotate") }}
               </n-button>
             </template>
-            {{ t("llm_settings.mcp_key_rotate_confirm") }}
+            <div style="max-width: 360px">
+              <div v-if="mcpKeyRecentlyUsed" style="font-weight: 600; margin-bottom: 6px">
+                {{ t("llm_settings.mcp_key_rotate_in_use", { time: fmtDateTime(llm.mcp_api_key_last_used_at), ip: llm.mcp_api_key_last_used_ip || "—" }) }}
+              </div>
+              {{ t("llm_settings.mcp_key_rotate_confirm") }}
+            </div>
           </n-popconfirm>
           <n-button v-else size="small" type="primary" :loading="mcpKeyBusy" @click="doRotateKey">
             <template #icon><n-icon :component="KeyIcon" /></template>{{ t("llm_settings.mcp_key_generate") }}

@@ -13,7 +13,8 @@ import { RACK_SLOTS, usesLevels, rackPixelHeight, slotNotation, boardList } from
 import { finishColors, keyholeTile, PLY_COLOR, ANGLE_HOLE_PITCH_PX, ANGLE_PLY_PX } from "@/utils/rackFinish";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import { NCard, NEmpty, NAlert, NSpace, NTooltip, NButton, NButtonGroup, NIcon, NDropdown, NSlider } from "naive-ui";
+import { NCard, NEmpty, NAlert, NSpace, NTooltip, NButton, NButtonGroup, NIcon, NDropdown, NSlider, NPopover } from "naive-ui";
+import { otherFaceHints, type FaceHint } from "@/utils/rackOtherFace";
 import type { RackDiagram } from "@/api/racks";
 import { rackTypeColor as colorFor, RACK_DEVICE_TYPES } from "@/utils/rackColors";
 import { exportRacksDrawio, exportRacksPng, exportRacksSvg,
@@ -418,6 +419,8 @@ const emit = defineEmits<{
   /** 量到的自然高度（px）。並排落地對齊的基準必須用**量出來的**值 —— 由資料推算的高度
    *  少了外框的 border/padding，而那是逐型態不同的，於是最高的那一台會比別人低個幾 px。 */
   (e: "measured", rackId: string, px: number): void;
+  /** 外部控制檢視面時（機房整排），點提示的「切換到背面」要請外層切 */
+  (e: "update:face", face: "front" | "rear"): void;
 }>();
 const hoveredId = ref<string | null>(null);   // hover 某 U → 整台裝置點亮+框線
 
@@ -556,6 +559,64 @@ const cells = computed<Cell[]>(() => {
   }
   return order;
 });
+
+/**
+ * 另一面的裝置提示（2026-10-21 設計「側邊提示軌＋背面數量」）：看正面時右側提示軌標「背 ×N」，
+ * 看背面時反過來標「前 ×N」。固定看得到（不靠滑鼠停留），也不遮住這一面的裝置：
+ * 標準機櫃與層架放在框外右側的提示軌；格櫃放在對應的格位，那一格這一面有東西時才退回提示軌。
+ * 縮圖（裝置詳細資料、儀表板）不畫：空間不夠，那裡的重點是本機的位置。
+ */
+interface PlacedHint extends FaceHint { key: string; top: number; height: number; inCell: boolean }
+const kallaxCols = computed(() => (isKallax.value ? Math.max(1, Number((props.diagram as any)?.render_cols ?? 1)) : 1));
+const otherFace = computed<"front" | "rear">(() => (effFace.value === "front" ? "rear" : "front"));
+const faceHints = computed<PlacedHint[]>(() => {
+  if (!props.diagram || props.compact) return [];
+  const hints = otherFaceHints(props.diagram.devices as any, effFace.value, rackKind.value, kallaxCols.value);
+  if (!hints.length) return [];
+  // 每一列在畫面上的 y（由上往下累加）
+  const pos = new Map<number, { top: number; px: number; board: number; cell: Cell }>();
+  let acc = 0;
+  for (const c of cells.value) { pos.set(c.u, { top: acc, px: c.px, board: c.board, cell: c }); acc += c.px; }
+  const width = RACK_SLOTS / kallaxCols.value;
+  const out: PlacedHint[] = [];
+  for (const h of hints) {
+    const rows = [...pos.entries()].filter(([u]) => u >= h.from && u <= h.to).map(([, v]) => v);
+    if (!rows.length) continue;
+    const top = Math.min(...rows.map((r) => r.top));
+    const bottom = Math.max(...rows.map((r) => r.top + r.px - r.board));
+    let inCell = false;
+    if (h.col != null) {
+      const lo = h.col * width, hi = lo + width;
+      inCell = !rows[0].cell.parts.some((p) => p.slot < hi && p.slot + p.span > lo);
+    }
+    out.push({ ...h, key: `${h.from}-${h.to}-${h.col ?? ""}`, top, height: Math.max(12, bottom - top), inCell });
+  }
+  return out;
+});
+const railHints = computed(() => faceHints.value.filter((h) => !h.inCell));
+const cellHints = computed(() => faceHints.value.filter((h) => h.inCell));
+function hintLabel(h: FaceHint): string {
+  return t(effFace.value === "front" ? "racks.rear_hint" : "racks.front_hint", { n: h.devices.length });
+}
+function hintTitle(h: FaceHint): string {
+  const where = isShelf.value
+    ? (h.from > (props.diagram?.u_height ?? 0) ? t("racks.level_top") : t("racks.level_at", { n: h.from }))
+    : (h.from === h.to ? `U${h.from}` : `U${h.from}–U${h.to}`);
+  return t(effFace.value === "front" ? "racks.rear_devices_at" : "racks.front_devices_at", { where });
+}
+/** 切到另一面並保留位置：版面高度不隨檢視面改變，捲動位置本來就在；被提示的裝置短暫亮起 */
+const flashIds = ref<Set<string>>(new Set());
+let flashTimer: ReturnType<typeof setTimeout> | null = null;
+const openHint = ref<string | null>(null);
+function switchToOther(h: FaceHint) {
+  openHint.value = null;
+  const target = otherFace.value;
+  if (props.face == null) faceView.value = target;
+  else emit("update:face", target);
+  flashIds.value = new Set(h.devices.map((d) => String(d.device_id)));
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { flashIds.value = new Set(); }, 2400);
+}
 </script>
 
 <template>
@@ -664,7 +725,7 @@ const cells = computed<Cell[]>(() => {
                 <template #trigger>
                   <div
                     class="u-part u-occupied"
-                    :class="{ 'u-top': p.is_top, 'u-bottom': p.is_bottom, 'u-cont': !p.is_bottom, 'u-hl': hoveredId === p.id || highlightId === p.id, 'u-dim': !!highlightId && highlightId !== p.id }"
+                    :class="{ 'u-top': p.is_top, 'u-bottom': p.is_bottom, 'u-cont': !p.is_bottom, 'u-hl': hoveredId === p.id || highlightId === p.id || flashIds.has(String(p.id)), 'u-dim': !!highlightId && highlightId !== p.id }"
                     :style="{ background: colorFor(p.type), left: pct(p.slot), width: pct(p.span),
                               ...partVStyle(p),
                               justifyContent: p.span >= 12 ? nameJustify : 'center' }"
@@ -693,6 +754,29 @@ const cells = computed<Cell[]>(() => {
                 </div>
               </n-tooltip>
 
+              <!-- 格櫃：另一面的提示放在對應的格位（這一面那一格是空的才放進來，不遮裝置） -->
+              <template v-for="h in cellHints" :key="'ch' + h.key">
+                <n-popover v-if="h.from === cell.u" trigger="click" placement="right" :width="300"
+                           :show="openHint === h.key" @update:show="(v: boolean) => (openHint = v ? h.key : null)">
+                  <template #trigger>
+                    <button type="button" class="face-chip face-chip--cell" data-testid="rack-face-hint"
+                            :style="{ left: `calc(${pct((h.col ?? 0) * (RACK_SLOTS / kallaxCols) + RACK_SLOTS / kallaxCols)} - 6px)` }"
+                            @click.stop>{{ hintLabel(h) }}</button>
+                  </template>
+                  <div class="face-pop">
+                    <div class="face-pop__t">{{ hintTitle(h) }}</div>
+                    <div class="face-pop__n">{{ t("racks.devices_total", { n: h.devices.length }) }}</div>
+                    <button v-for="d in h.devices" :key="d.device_id" type="button" class="face-pop__d" @click="goDevice(String(d.device_id))">
+                      <i class="face-pop__sw" :style="{ background: colorFor(d.type) }" />
+                      <span class="face-pop__name">{{ d.name }}</span>
+                      <span class="face-pop__m">{{ [t(`devices.type_${d.type}`), d.model].filter(Boolean).join(" · ") }}</span>
+                    </button>
+                    <n-button size="small" type="primary" block @click="switchToOther(h)">
+                      {{ t(otherFace === "rear" ? "racks.switch_to_rear" : "racks.switch_to_front") }}
+                    </n-button>
+                  </div>
+                </n-popover>
+              </template>
               <!-- 空隙：點了就帶著「哪一個 U、哪一格」去新增 -->
               <div v-for="g in cell.gaps" :key="'gap' + g.slot"
                    class="u-part u-gap" :class="{ 'u-pickable': editable }"
@@ -705,6 +789,33 @@ const cells = computed<Cell[]>(() => {
               </div>
             </div>
           </template>
+        </div>
+        <!-- 另一面的提示軌：對齊 U 位／層，跨多 U 用括線；只有在有提示時才占寬度 -->
+        <div v-if="railHints.length" class="face-rail" :style="{ paddingTop: 6 + topPx + 'px' }">
+          <div class="face-rail__in" :style="{ height: cells.reduce((a, c) => a + c.px, 0) + 'px' }">
+            <n-popover v-for="h in railHints" :key="h.key" trigger="click" placement="right" :width="300"
+                       :show="openHint === h.key" @update:show="(v: boolean) => (openHint = v ? h.key : null)">
+              <template #trigger>
+                <button type="button" class="face-hint" data-testid="rack-face-hint"
+                        :class="{ 'is-span': h.height > 30 }"
+                        :style="{ top: h.top + 'px', height: h.height + 'px' }">
+                  <span class="face-chip">{{ hintLabel(h) }}</span>
+                </button>
+              </template>
+              <div class="face-pop">
+                <div class="face-pop__t">{{ hintTitle(h) }}</div>
+                <div class="face-pop__n">{{ t("racks.devices_total", { n: h.devices.length }) }}</div>
+                <button v-for="d in h.devices" :key="d.device_id" type="button" class="face-pop__d" @click="goDevice(String(d.device_id))">
+                  <i class="face-pop__sw" :style="{ background: colorFor(d.type) }" />
+                  <span class="face-pop__name">{{ d.name }}</span>
+                  <span class="face-pop__m">{{ [t(`devices.type_${d.type}`), d.model].filter(Boolean).join(" · ") }}</span>
+                </button>
+                <n-button size="small" type="primary" block @click="switchToOther(h)">
+                  {{ t(otherFace === "rear" ? "racks.switch_to_rear" : "racks.switch_to_front") }}
+                </n-button>
+              </div>
+            </n-popover>
+          </div>
         </div>
        </div>
       </div>
@@ -722,6 +833,30 @@ const cells = computed<Cell[]>(() => {
 </template>
 
 <style scoped>
+/* 另一面的提示軌（背 ×N／前 ×N）：框外右側，對齊 U 位；跨多 U 用左側括線 */
+.face-rail { flex: 0 0 auto; width: 58px; }
+.face-rail__in { position: relative; }
+.face-hint { position: absolute; left: 0; right: 0; display: flex; align-items: center; padding: 0 0 0 8px;
+  background: none; border: 0; cursor: pointer; font: inherit; }
+.face-hint::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 3px; border-radius: 2px;
+  background: #5b6ee1; }
+.face-hint.is-span::before { width: 6px; background: transparent; border: 2px solid #5b6ee1; border-right: 0; border-radius: 3px 0 0 3px; }
+.face-chip { display: inline-block; background: #5b6ee1; color: #fff; font: 600 11px/1 system-ui, sans-serif;
+  padding: 4px 6px; border-radius: 4px; white-space: nowrap; }
+.face-hint:hover .face-chip, .face-hint:focus-visible .face-chip { background: #4357d6; box-shadow: 0 0 0 2px rgba(91, 110, 225, .35); }
+/* 格櫃：放在那一格的右下角 */
+.face-chip--cell { position: absolute; bottom: 4px; transform: translateX(-100%); border: 0; cursor: pointer; z-index: 2; }
+.face-pop { display: grid; gap: 8px; }
+.face-pop__t { font-weight: 700; font-size: 14px; }
+.face-pop__n { font-size: 12px; opacity: .7; margin-top: -6px; }
+.face-pop__d { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 8px; text-align: left;
+  border: 1px solid rgba(127, 127, 127, .25); border-radius: 6px; padding: 6px 8px; background: none; cursor: pointer;
+  font: inherit; color: inherit; }
+.face-pop__d:hover { border-color: #5b6ee1; }
+.face-pop__sw { grid-row: span 2; width: 14px; height: 14px; border-radius: 3px; margin-top: 2px; }
+.face-pop__name { font-weight: 600; overflow-wrap: anywhere; }
+.face-pop__m { font-size: 12px; opacity: .7; }
+
 /* 衝突清單：繁中可讀句子（取代原本的 JSON dump） */
 .conflict-list { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }
 

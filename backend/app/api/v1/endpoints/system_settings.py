@@ -986,6 +986,8 @@ class LLMConfigOut(StrictModel):
     mcp_external_enabled: bool = False
     mcp_api_key_set: bool = False        # 是否已產生對外 MCP 金鑰（不回明文）
     mcp_api_key_expires_at: datetime | None = None   # 到期時間（過期的金鑰會被拒絕）
+    mcp_api_key_last_used_at: datetime | None = None  # 目前這把金鑰最後一次被 MCP 用戶端使用（重產後歸零）
+    mcp_api_key_last_used_ip: str | None = None
     ai_audit_enabled: bool = False
     ai_audit_times: list[str] = []       # 執行時刻（"HH:MM"，伺服器本地時區）
     # 排程的「哪幾天」：daily / weekly（配 weekdays）／monthly（配 month_day）
@@ -1039,8 +1041,9 @@ def _server_tz() -> str:
     return str(getattr(tz, "key", None) or tz or "")
 
 
-def _llm_out(cfg: Any) -> LLMConfigOut:
+def _llm_out(cfg: Any, usage: tuple[Any, Any] = (None, None)) -> LLMConfigOut:
     return LLMConfigOut(
+        mcp_api_key_last_used_at=usage[0], mcp_api_key_last_used_ip=usage[1],
         enabled=cfg.enabled, url=cfg.url,
         embedding_model=cfg.embedding_model,
         embedding_base_url=getattr(cfg, "embedding_base_url", None) or "",
@@ -1069,7 +1072,8 @@ async def get_llm(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> LLMConfigOut:
     cfg = await get_llm_config(session)
-    return _llm_out(cfg)
+    from app.services.system_config import get_mcp_key_usage
+    return _llm_out(cfg, await get_mcp_key_usage(session, cfg.mcp_api_key))
 
 
 @router.patch("/llm", response_model=LLMConfigOut)
@@ -1117,7 +1121,8 @@ async def patch_llm(
     )
     await session.commit()
     cfg = await get_llm_config(session)
-    return _llm_out(cfg)
+    from app.services.system_config import get_mcp_key_usage
+    return _llm_out(cfg, await get_mcp_key_usage(session, cfg.mcp_api_key))
 
 
 @router.get("/llm/mcp-key")
@@ -1289,6 +1294,7 @@ async def preview_autolink(
 import uuid as _uuid
 from typing import Literal as _Literal
 
+from sqlalchemy import func as _func
 from sqlalchemy import select as _select
 
 from app.models.permission import Permission as _Permission
@@ -1313,6 +1319,25 @@ class PermissionGrantCreate(StrictModel):
     principal_type: _Literal["user", "group"]
     principal_id: _uuid.UUID
     level: _Literal["read", "write", "admin"]
+
+
+@router.get("/permissions/summary")
+async def permissions_summary(session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, Any]:
+    """權限指派清單用：每個帳號掛了哪些角色、有幾筆直接的物件授權（2026-10-22）。
+    一次算全部帳號（兩個 GROUP BY），清單不必逐一打開每個人。"""
+    from app.models.user import Group as _Group
+    from app.models.user import UserGroupMember as _Member
+
+    out: dict[str, Any] = {}
+    for uid, name in (await session.execute(
+            _select(_Member.user_id, _Group.name).join(_Group, _Group.id == _Member.group_id)
+            .order_by(_Group.name))).all():
+        out.setdefault(str(uid), {"roles": [], "grants": 0})["roles"].append(name)
+    for pid, n in (await session.execute(
+            _select(_Permission.principal_id, _func.count()).where(_Permission.principal_type == "user")
+            .group_by(_Permission.principal_id))).all():
+        out.setdefault(str(pid), {"roles": [], "grants": 0})["grants"] = int(n)
+    return out
 
 
 @router.get("/permissions", response_model=list[PermissionGrantOut])
@@ -1482,7 +1507,8 @@ def _gather_version_info() -> dict[str, Any]:
               "vue-i18n", "axios", "@xterm/xterm", "@xterm/addon-fit",
               "@xterm/addon-unicode11", "@xterm/addon-web-links",
               "@novnc/novnc", "@iconoir/vue", "@vueuse/core",
-              "cytoscape", "cytoscape-cose-bilkent", "fzstd", "qrcode", "tweetnacl", "vfonts", "zod"]:
+              "cytoscape", "cytoscape-cose-bilkent", "fzstd", "qrcode", "tweetnacl", "vfonts", "zod",
+              "@fontsource-variable/inter"]:
         ver: str | None = None
         try:
             ver = json.loads((fe_root / p / "package.json").read_text(encoding="utf-8")).get("version")

@@ -31,7 +31,8 @@ onMounted(async () => {
     <n-spin v-if="loading" :show="true" style="margin:80px auto;display:block" />
     <n-result v-else-if="failed || !addr" status="403" :title="t('ssh.err_generic')" />
     <SshTerminal v-else :address-id="addr.id" :ip="addr.ip"
-                 :hostname="addr.hostname" :device-name="addr.device_name" full-height />
+                 :hostname="addr.hostname" :device-name="addr.device_name"
+                 :os-family="addr.os_family" :os-guess="addr.os_guess" full-height />
   </div>
 </template>
 

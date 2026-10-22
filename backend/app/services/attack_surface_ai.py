@@ -193,5 +193,5 @@ async def run_analysis(session: Any, prompt: str, *, on_chunk: Any) -> tuple[str
     """把提示詞送進「AI 判讀」模型（邊寫邊回 on_chunk）。提示詞由 build_prompt 組，資料一律定界
     （prompt_safety.DATA_RULE_ZH）；呼叫留在這個模組，送進 LLM 的地方才看得到那條規則。"""
     from app.services import ai as ai_mod
-    return await ai_mod.interpret_chat(session, prompt, timeout=180.0, max_output_tokens=1400,
+    return await ai_mod.interpret_chat(session, prompt, timeout=180.0, max_output_tokens="auto",
                                        no_thinking=True, on_chunk=on_chunk)

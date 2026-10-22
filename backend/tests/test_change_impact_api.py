@@ -675,3 +675,26 @@ async def test_ai_artifact_reports_what_it_is_doing(client, auth_headers, db_ses
     assert seen == ["asking", "retrying"], seen
     art = (await client.get(f"/api/v1/impact-runs/{run_id}/ai-artifacts", headers=auth_headers)).json()["items"][0]
     assert "stage" in art and art["stage"] is None and art["status"] == "completed"
+
+
+async def test_ai_reply_cut_off_by_the_output_limit_is_retried_shorter(client, auth_headers, db_session, monkeypatch) -> None:
+    """正式站台 2026-10-21：逐項解釋寫到 2,855 字被輸出上限（當時 2000 token）切斷，JSON 不完整 →
+    重試時只說「不是 JSON」，模型照樣寫一樣長，再被切一次，最後退回範本摘要。
+    被切斷要明講「太長、請精簡」；run_id 與 schema_version 由程式補，不要求模型照抄。"""
+    import app.services.ai as ai_mod
+    pid, run_id = await _run_for_ai(client, auth_headers, db_session)
+
+    def reply(prompt, n):  # type: ignore[no-untyped-def]
+        if n == 1:
+            return ai_mod.ChatText('{"summary": [{"text": "很長很長', truncated=True)
+        return json.dumps({"summary": [{"text": "精簡後的摘要"}]})        # 沒有 run_id、schema_version 也行
+    calls = await _ai_ready(db_session, monkeypatch, reply)
+    r = await client.post(f"/api/v1/impact-runs/{run_id}/ai-artifacts", headers=auth_headers,
+                          json={"artifact_type": "explanation"})
+    assert r.status_code == 202, r.text
+    assert len(calls) == 2
+    assert "截斷" in calls[1] and "精簡" in calls[1]
+    assert "精簡" in calls[0]                                   # 第一次就要求精簡（限制項數與字數）
+    art = (await client.get(f"/api/v1/impact-runs/{run_id}/ai-artifacts", headers=auth_headers)).json()["items"][0]
+    assert art["status"] == "completed", art
+    assert art["validation_state"] == "repaired"

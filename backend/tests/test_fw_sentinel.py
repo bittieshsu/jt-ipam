@@ -197,3 +197,65 @@ async def test_an_empty_rule_set_after_a_populated_one_is_not_stored_or_alerted(
     rows = (await db_session.execute(
         select(FwRuleSnapshot).where(FwRuleSnapshot.instance_id == fid))).scalars().all()
     assert len(rows) == 1
+
+
+# ─────────── 系統自動規則（10-22：一台 OPNsense 升級韌體後「新增 28 條」） ───────────
+# OPNsense 新版的規則 API 連系統自動產生的規則（anti-lockout、預設拒絕、IPv6 必要規則、CrowdSec／
+# sshlockout 封鎖表…，raw 帶 is_automatic）一起回傳。它們升級前就在作用，不是有人新增的。
+
+def _auto(key: str, **kw) -> dict[str, str]:
+    return _r(key, auto="1", **kw)
+
+
+def test_normalize_opnsense_marks_automatic_rules() -> None:
+    from types import SimpleNamespace
+
+    from app.services.fw_review import normalize_opnsense
+    base = dict(id="x", action="pass", interface="lan", protocol="tcp", source_net="any", source_port="",
+                destination_net="any", destination_port="443", description="", enabled=True)
+    user = SimpleNamespace(legacy_uuid="214f494f-d615-4049-ba16-def48bccf661", raw={"uuid": "u"}, **base)
+    auto = SimpleNamespace(legacy_uuid="8164f82fd0b4f3b0e0c494228a454c17", raw={"is_automatic": True}, **base)
+    rows = normalize_opnsense([user, auto])
+    assert "auto" not in rows[0]                 # 使用者規則的形狀不變（加欄位會讓既有規則全部變成「修改」）
+    assert rows[1]["auto"] == "1"
+
+
+def test_automatic_rules_are_split_out_of_the_diff() -> None:
+    d = diff_rules([_r("1")], [_r("1"), _auto("a" * 32, descr="anti-lockout rule"), _r("2", descr="new")])
+    assert [r["key"] for r in d["added"]] == ["2"]
+    assert [r["key"] for r in d["auto"]["added"]] == ["a" * 32]
+
+
+def test_marking_old_snapshot_rows_as_automatic_is_not_a_change() -> None:
+    """升級當下那份快照的系統規則還沒有 auto 標記；下一輪補上標記不可以變成 28 條「修改」。"""
+    k = "8164f82fd0b4f3b0e0c494228a454c17"
+    d = diff_rules([_r("1"), _r(k)], [_r("1"), _auto(k)])
+    assert d == {"added": [], "removed": [], "changed": []}
+
+
+@pytest.mark.anyio
+async def test_only_automatic_changes_do_not_alert(db_session) -> None:
+    iid = uuid.uuid4()
+    await snapshot_if_changed(db_session, source_type="opnsense", instance_id=iid, instance_name="fw",
+                              rules=[_r("1")])
+    diff = await snapshot_if_changed(db_session, source_type="opnsense", instance_id=iid, instance_name="fw",
+                                     rules=[_r("1"), _auto("b" * 32)])
+    from app.services.fw_review import is_alertable
+    assert diff is not None and not is_alertable(diff)
+    assert is_alertable(diff_rules([_r("1")], [_r("1"), _r("2")]))
+
+
+@pytest.mark.anyio
+async def test_flag_only_change_rebaselines_silently(db_session) -> None:
+    """只是補上 auto 標記（內容沒變）：更新上一份快照，不多一列也不通知。"""
+    iid = uuid.uuid4()
+    k = "c" * 32
+    await snapshot_if_changed(db_session, source_type="opnsense", instance_id=iid, instance_name="fw",
+                              rules=[_r("1")])
+    await snapshot_if_changed(db_session, source_type="opnsense", instance_id=iid, instance_name="fw",
+                              rules=[_r("1"), _r(k)])
+    diff = await snapshot_if_changed(db_session, source_type="opnsense", instance_id=iid, instance_name="fw",
+                                     rules=[_r("1"), _auto(k)])
+    assert diff is None
+    n = len((await db_session.execute(select(FwRuleSnapshot).where(FwRuleSnapshot.instance_id == iid))).all())
+    assert n == 2

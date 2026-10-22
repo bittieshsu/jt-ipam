@@ -409,6 +409,14 @@ DEFAULT_ROLES: dict[str, dict[str, str]] = {
                    "subnet": "write", "ip": "write", "device": "write"},
     "稽核員": dict.fromkeys(_ALL_TYPES, "read"),
     "部門管理員": {},  # 無 wildcard；由管理員指派特定單位/區段為 admin
+    # 戰情室檢視者（2026-10-22）：所有物件唯讀，另外在戰情室（唯讀看板）看得到管理員限定的統計
+    # （異常、DNS 比對、憑證、監控覆蓋、IP 變更評估、採集）。只放寬戰情室：那些功能自己的頁面、
+    # REST 與 MCP 照舊只給管理員（見 services/warroom/common.full_access）。給電視用的帳號就掛這個
+    "戰情室檢視者": dict.fromkeys(_ALL_TYPES, "read"),
+}
+WARROOM_ROLE = "戰情室檢視者"
+ROLE_DESCRIPTIONS: dict[str, str] = {
+    WARROOM_ROLE: "戰情室看得到全部主題（含異常、憑證、採集等統計）；其他頁面唯讀、不能修改",
 }
 
 
@@ -435,7 +443,7 @@ async def seed_default_roles(session: AsyncSession) -> int:
             select(Group).where(Group.name == role_name)
         )).scalar_one_or_none()
         if grp is None:
-            grp = Group(name=role_name, is_builtin=True)
+            grp = Group(name=role_name, is_builtin=True, description=ROLE_DESCRIPTIONS.get(role_name))
             session.add(grp)
             await session.flush()
             created += 1

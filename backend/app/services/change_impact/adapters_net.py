@@ -43,7 +43,6 @@ async def dns(ctx: Ctx) -> None:
     srcs = ctx.sources_of("dns")
     if not srcs or not ctx.allowed("dns"):
         return
-    ctx.gap("dns", "dns_cname_not_collected", affected="dns")
     ctx.gap("dns", "dns_view_not_modeled", affected="dns")
     types = dict((await ctx.session.execute(text("SELECT id, type FROM dns_servers"))).all())
     # 比對群組：同一組裡相同的紀錄合成一個發現（每筆紀錄仍是一份證據，追得到是哪一台）
@@ -51,6 +50,9 @@ async def dns(ctx: Ctx) -> None:
         SELECT s.id, s.compare_group_id, g.name FROM dns_servers s LEFT JOIN dns_compare_groups g ON g.id = s.compare_group_id
     """))).all()}
     by_id = {s.id: s for s in srcs}
+    # 不回報真實 TTL 的伺服器：同一個比對群組合成一筆缺口（各台內容本來就一樣）
+    fake_ttl: dict[Any, list[Any]] = {}
+    a_names: dict[str, set[str]] = {}            # 根位址 → 指向它的 A／AAAA 記錄名稱（追 CNAME 用）
     for root in _addresses(ctx):
         rows = (await ctx.session.execute(text(f"""
             SELECT r.id, r.name, r.type, r.value, r.ttl, r.source, r.last_seen_at, z.name AS zone, z.server_id,
@@ -80,8 +82,10 @@ async def dns(ctx: Ctx) -> None:
                 continue
             ttl_known = types.get(r.server_id) not in _FAKE_TTL
             if not ttl_known:
-                ctx.gap("dns", "ttl_unknown", scope=src.ref, server=src.name)
+                fake_ttl.setdefault(groups.get(r.server_id, (None, None))[0] or r.server_id, []).append(src)
             fqdn = r.name if r.name.endswith(".") or r.zone.rstrip(".") in r.name else f"{r.name}.{r.zone.rstrip('.')}"
+            if r.type in ("A", "AAAA"):
+                a_names.setdefault(root.ip_text, set()).add(_fqdn_norm(fqdn))
             label = f"{fqdn} {r.type} {r.value}"
             key = ctx.add(Evidence(key=f"dns_record:{r.id}", source_type="dns", object_type="dns_record", object_id=r.id,
                                    integration_ref=src.ref, label=label[:300],
@@ -108,7 +112,87 @@ async def dns(ctx: Ctx) -> None:
             ctx.find(Finding(rule, "dns_record", label[:300], [it[2] for it in items],
                              subject_key=f"dnsgrp:{gid}:{mk[1]}:{mk[2]}:{mk[3]}", match_kind="exact",
                              params=params, strength=ctx.strength_for(src, root)))
+    for members in fake_ttl.values():
+        uniq = {s.id: s for s in members}
+        names = sorted(str(s.name) for s in uniq.values())
+        ctx.gap("dns", "ttl_unknown", scope=next(iter(uniq.values())).ref, server=", ".join(names))
+    await _cnames(ctx, srcs, a_names)
     await _adguard(ctx, [s for s in srcs if s.kind == "adguard"])
+
+
+def _fqdn_norm(name: str) -> str:
+    return (name or "").strip().rstrip(".").lower()
+
+
+#: CNAME 鏈最多追幾層（RFC 沒有上限，但實務上超過幾層就是設定錯誤或迴圈）
+CNAME_MAX_DEPTH = 8
+
+
+async def _cnames(ctx: Ctx, srcs: list[Any], a_names: dict[str, set[str]]) -> None:
+    """經 CNAME 指到舊位址的名稱（2026-10-21 稽核：以前不分青紅皂白寫「沒有保存 CNAME」，
+    其實存了，而且漏掉 amviz → kvm → 舊位址這種別名）。一層一層往回追，有走過的就不再走（迴圈）。
+    來源一筆 CNAME 都沒有時才說沒有 CNAME 資料。"""
+    server_ids = [s.id for s in srcs if s.kind != "adguard"]
+    if not server_ids:
+        return
+    rows = (await ctx.session.execute(text("""
+        SELECT r.id, r.name, r.value, r.last_seen_at, z.name AS zone, z.server_id
+          FROM dns_records r JOIN dns_zones z ON z.id = r.zone_id
+         WHERE upper(r.type) = 'CNAME' AND z.server_id = ANY(:ids)
+    """), {"ids": server_ids})).all()
+    if not rows:
+        ctx.gap("dns", "dns_cname_not_collected", affected="dns")
+        return
+    by_id = {s.id: s for s in srcs}
+    pointing: dict[str, list[tuple[str, Any]]] = {}        # 目標名稱 → [(別名, 記錄)]
+    for r in rows:
+        zone = _fqdn_norm(r.zone)
+        alias = _fqdn_norm(r.name)
+        if alias in ("", "@"):
+            alias = zone
+        elif not (alias == zone or alias.endswith("." + zone)):
+            alias = f"{alias}.{zone}"
+        target = _fqdn_norm(r.value)
+        if target and "." not in target:                   # 相對名稱：補上所在的 zone
+            target = f"{target}.{zone}"
+        pointing.setdefault(target, []).append((alias, r))
+    for root in _addresses(ctx):
+        starts = sorted(a_names.get(root.ip_text, set()))
+        seen: set[str] = set(starts)
+        frontier = [(n, n, [n]) for n in starts]            # (目前名稱, 最後的 A 記錄名稱, 走過的路)
+        found: dict[str, tuple[str, list[str], list[Any]]] = {}
+        depth = 0
+        while frontier and depth < CNAME_MAX_DEPTH:
+            depth += 1
+            nxt = []
+            for name, origin, path in frontier:
+                for alias, r in pointing.get(name, []):
+                    src = by_id.get(r.server_id)
+                    if src is None or ctx.in_scope(src, root) is False:
+                        continue
+                    if alias in found:
+                        found[alias][2].append((r, src))
+                        continue
+                    if alias in seen:
+                        continue                            # 迴圈或已經是 A 記錄本身
+                    seen.add(alias)
+                    found[alias] = (origin, [*path, alias], [(r, src)])
+                    nxt.append((alias, origin, [*path, alias]))
+            frontier = nxt
+        for alias in sorted(found):
+            origin, path, recs = found[alias]
+            keys = []
+            for r, src in recs:
+                keys.append(ctx.add(Evidence(
+                    key=f"dns_record:{r.id}", source_type="dns", object_type="dns_record", object_id=r.id,
+                    integration_ref=src.ref, label=f"{alias} CNAME {_fqdn_norm(r.value)}"[:300],
+                    payload={"name": alias, "type": "CNAME", "value": r.value, "zone": r.zone, "server": src.name},
+                    observed_at=r.last_seen_at, freshness=src.freshness)))
+            ctx.find(Finding("dns.cname_chain", "dns_record", f"{alias} → {origin}"[:300], keys,
+                             subject_key=f"cname:{alias}", match_kind="exact",
+                             params={"address": root.ip_text, "name": alias, "target": origin,
+                                     "path": " → ".join(reversed(path)),
+                                     "server": ", ".join(sorted({str(src.name) for _r, src in recs}))}))
 
 
 async def _adguard(ctx: Ctx, srcs: list[Any]) -> None:
@@ -139,9 +223,16 @@ async def dhcp(ctx: Ctx) -> None:
     srcs = ctx.sources_of("dhcp")
     if not srcs or not ctx.allowed("dhcp"):
         return
-    # 只有 ISOinsight 知道租約到期時間；其他來源只知道最近一次看到
-    if any("lease_expiry" not in s.capabilities for s in srcs):
+    # 只有 ISOinsight 知道租約到期時間；其他來源只知道最近一次看到。
+    # 只在這次真的有租約相關的發現時才列（2026-10-21：每次都出現就成了雜訊）
+    lease_gap = any("lease_expiry" not in s.capabilities for s in srcs)
+    before = len(ctx.findings)
+    await _dhcp_body(ctx, srcs)
+    if lease_gap and any("lease" in f.rule_id for f in ctx.findings[before:]):
         ctx.gap("dhcp", "dhcp_lease_expiry_unknown", affected="dhcp")
+
+
+async def _dhcp_body(ctx: Ctx, srcs: list[Any]) -> None:
     v6_kinds = {s.kind for s in srcs if "ipv4_only" in s.capabilities}
     sc = ctx.scenario
     if any(r.aip.version == 6 for r in ctx.roots) or (sc.new_aip is not None and sc.new_aip.version == 6):
@@ -483,6 +574,7 @@ async def _load_firewalls(ctx: Ctx) -> list[_FwScope]:
         raw = r.raw or {}
         scope("opnsense", r.firewall_id, opn[r.firewall_id]).rules.append({
             "id": r.id, "key": None, "label": (r.description or f"#{r.sequence or ''}")[:120],
+            "detail": _rule_detail(r.interface, r.protocol, r.destination_port),
             "src": [r.source_net] if r.source_net else [], "dst": [r.destination_net] if r.destination_net else [],
             "src_not": _truthy(raw.get("source_not")), "dst_not": _truthy(raw.get("destination_not")),
             "enabled": bool(r.enabled), "action": r.action, "interface": r.interface,
@@ -703,9 +795,10 @@ async def firewall(ctx: Ctx) -> None:
                     continue
                 side, kind, value, hit, negated = matched
                 rkey = str(r["id"]) if r["id"] else f"{sc.ref}:{r['key']}"
+                rlabel = f"{sc.label} {r['label']}" + (f" ({r['detail']})" if r.get("detail") else "")
                 key = ctx.add(Evidence(
                     key=f"fw_rule:{rkey}", source_type="firewall", object_type="fw_rule", object_id=r["id"],
-                    object_key=r["key"], integration_ref=sc.ref, label=f"{sc.label} {r['label']}"[:300],
+                    object_key=r["key"], integration_ref=sc.ref, label=rlabel[:300],
                     payload={"firewall": sc.label, "vendor": sc.vendor, "rule": r["label"], "side": side,
                              "value": value, "action": r["action"], "interface": r["interface"],
                              "enabled": r["enabled"], "negated": negated,
@@ -723,10 +816,11 @@ async def firewall(ctx: Ctx) -> None:
                     rule = "fw.rule_range_both"
                 else:
                     rule = "fw.rule_range"
-                ctx.find(Finding(rule, "fw_rule", f"{sc.label} {r['label']}"[:300], [key], subject_id=r["id"],
+                ctx.find(Finding(rule, "fw_rule", rlabel[:300], [key], subject_id=r["id"],
                                  subject_key=rkey, match_kind=kind,
                                  params={"address": root.ip_text, "side": side, "value": value, "firewall": sc.label,
-                                         "action": r["action"] or ""},
+                                         "action": r["action"] or "", "interface": r["interface"],
+                                         "detail": r.get("detail")},
                                  path=[{"ref": f"fw_object:{p}", "label": p} for p in (hit.path[:-1] if hit else [])],
                                  strength=strength))
         if sc.iface_nets:
@@ -760,14 +854,19 @@ async def nat(ctx: Ctx) -> None:
     for n in rows:
         root = by_id.get(n.dst_ip_id) or by_id.get(n.src_ip_id)
         side = "dst" if n.dst_ip_id in by_id else "src"
+        # 名稱帶上防火牆與埠：同名的「Reverse Proxy」好幾條才分得出來（2026-10-21 稽核）
+        fw_name = _origin_name(ctx, n.source_origin)
+        port = f"{(n.protocol or '').upper()}/{n.dst_port}".lstrip("/") if n.dst_port else (n.protocol or "").upper()
+        label = " · ".join(x for x in (n.name, fw_name, port) if x)[:300]
         key = ctx.add(Evidence(key=f"nat:{n.id}", source_type="nat", object_type="nat_translation", object_id=n.id,
-                               integration_ref=n.source_origin, label=n.name[:300],
+                               integration_ref=n.source_origin, label=label,
                                payload={"type": n.type, "side": side, "protocol": n.protocol, "dst_port": n.dst_port,
                                         "disabled": n.disabled, "origin": (n.source_origin or "manual").split(":")[0]},
                                freshness="current" if not n.source_origin else _origin_freshness(ctx, n.source_origin)))
         ctx.find(Finding("nat.translation_disabled" if n.disabled else "nat.translation", "nat_translation",
-                         n.name[:300], [key], subject_id=n.id, match_kind="exact",
-                         params={"address": root.ip_text if root else "", "side": side, "type": n.type}))
+                         label, [key], subject_id=n.id, match_kind="exact",
+                         params={"address": root.ip_text if root else "", "side": side, "type": n.type,
+                                 "firewall": fw_name, "protocol": n.protocol, "dst_port": n.dst_port}))
     if ctx.scenario.device_id:
         for n in (await ctx.session.execute(text(
                 "SELECT id, name, type, disabled FROM nat_translations WHERE device_id = :d"),
@@ -782,6 +881,17 @@ async def nat(ctx: Ctx) -> None:
 async def _has_manual_nat(ctx: Ctx) -> bool:
     return bool((await ctx.session.execute(text(
         "SELECT 1 FROM nat_translations WHERE source_origin IS NULL LIMIT 1"))).first())
+
+
+def _origin_name(ctx: Ctx, origin: str | None) -> str | None:
+    if not origin:
+        return None
+    kind, _, sid = origin.partition(":")
+    try:
+        src = ctx.source(kind, uuid.UUID(sid))
+    except ValueError:
+        return None
+    return src.name if src else None
 
 
 def _origin_freshness(ctx: Ctx, origin: str) -> str:
@@ -868,19 +978,26 @@ async def monitoring(ctx: Ctx) -> None:
             "SELECT ocs_id, ocs_tag, last_seen_ocs, hostname FROM ip_addresses WHERE id = :id AND ocs_id IS NOT NULL"),
             {"id": root.ip_id})).first()
         if o is not None:
+            # 時效用 OCS 來源的（以前寫死「未知」）；IP 記錄沒記是哪一台 OCS，只有一台時才對得上
+            ocs = [s for s in ctx.sources if s.kind == "ocs"]
+            osrc = ocs[0] if len(ocs) == 1 else None
             key = ctx.add(Evidence(key=f"ocs:{root.ip_id}", source_type="monitoring", object_type="ocs_computer",
                                    object_key=str(o.ocs_id), label=f"OCS #{o.ocs_id}", payload={"tag": o.ocs_tag},
-                                   observed_at=o.last_seen_ocs, freshness="unknown", visibility=("admin", None)))
+                                   integration_ref=osrc.ref if osrc else None, observed_at=o.last_seen_ocs,
+                                   freshness=osrc.freshness if osrc else "unknown", visibility=("admin", None)))
             # 名稱用主機名稱（OCS 的電腦編號沒人認得）；「OCS」由畫面上的來源標示
             ctx.find(Finding("monitoring.ocs_inventory", "ocs_computer", o.hostname or f"#{o.ocs_id}", [key],
                              subject_key=str(o.ocs_id), params={"address": root.ip_text}, visibility=("admin", None)))
     for p in (await ctx.session.execute(text("""
-        SELECT id, rustdesk_id, hostname, address_id, last_online_at FROM rustdesk_peers WHERE address_id = ANY(:ids)
+        SELECT id, rustdesk_id, hostname, address_id, last_online_at, server_id FROM rustdesk_peers
+         WHERE address_id = ANY(:ids)
     """), {"ids": ids})).all():
         root = by_id[p.address_id]
+        rsrc = ctx.source("rustdesk", p.server_id)
         key = ctx.add(Evidence(key=f"rustdesk_peer:{p.id}", source_type="monitoring", object_type="rustdesk_peer",
                                object_id=p.id, label=f"RustDesk {p.rustdesk_id}", payload={"hostname": p.hostname},
-                               observed_at=p.last_online_at, freshness="unknown", visibility=("admin", None)))
+                               integration_ref=rsrc.ref if rsrc else None, observed_at=p.last_online_at,
+                               freshness=rsrc.freshness if rsrc else "unknown", visibility=("admin", None)))
         ctx.find(Finding("monitoring.rustdesk_peer", "rustdesk_peer", f"RustDesk {p.rustdesk_id}", [key],
                          subject_id=p.id, params={"address": root.ip_text}, visibility=("admin", None)))
 
@@ -896,11 +1013,12 @@ async def virt(ctx: Ctx) -> None:
     by_id = {r.ip_id: r for r in ctx.roots}
     rows = (await ctx.session.execute(text("""
         SELECT vm.id AS vm_id, vm.name, vm.status, vm.kind, vm.node, vm.primary_ip_id, i.id AS if_id, i.name AS ifname,
-               host(i.primary_ip) AS ip, i.mac::text AS mac, c.name AS cluster
+               host(i.primary_ip) AS ip, i.mac::text AS mac, c.name AS cluster, c.id AS cluster_id, c.type AS ctype
           FROM virtual_machines vm JOIN virt_clusters c ON c.id = vm.cluster_id
           LEFT JOIN vm_interfaces i ON i.vm_id = vm.id
          WHERE vm.primary_ip_id = ANY(:ids) OR host(i.primary_ip) = ANY(:texts)
     """), {"ids": ids, "texts": texts})).all() if ids else []
+    owners = await _virt_owners(ctx)
     seen: set[Any] = set()
     for r in rows:
         if r.vm_id in seen:
@@ -912,11 +1030,18 @@ async def virt(ctx: Ctx) -> None:
         explicit = r.primary_ip_id in by_id
         # 網卡 MAC 跟 IP 記錄的 MAC 對得上才算明確；只有位址對上可能是重疊網段的另一台
         mac_ok = bool(r.mac and root.mac and r.mac.lower() == root.mac.lower())
+        vsrc = owners.get(r.cluster_id)
+        # Proxmox LXC 的位址是設定裡寫死的（net0 ip=…，同步時從設定解析）：改址就是改這裡。
+        # QEMU 的位址來自 guest agent 回報（系統裡改），維持僅參考（2026-10-21 稽核）
+        static = r.kind == "ct" and r.ctype == "proxmox" and r.ip == root.ip_text
         key = ctx.add(Evidence(key=f"vm:{r.vm_id}", source_type="virt", object_type="virtual_machine",
                                object_id=r.vm_id, label=f"{r.cluster}/{r.name}"[:300],
                                payload={"status": r.status, "kind": r.kind, "node": r.node, "interface": r.ifname,
-                                        "mac_match": mac_ok}, freshness="unknown"))
-        ctx.find(Finding("virt.vm_interface", "virtual_machine", f"{r.cluster}/{r.name}"[:300], [key],
+                                        "mac_match": mac_ok, "config_static": static},
+                               integration_ref=vsrc.ref if vsrc else None,
+                               freshness=vsrc.freshness if vsrc else "unknown"))
+        ctx.find(Finding("virt.config_static_ip" if static else "virt.vm_interface", "virtual_machine",
+                         f"{r.cluster}/{r.name}"[:300], [key],
                          subject_id=r.vm_id, match_kind="exact",
                          params={"address": root.ip_text, "status": r.status, "node": r.node or ""},
                          strength="explicit" if explicit or mac_ok else "inferred"))
@@ -953,6 +1078,25 @@ async def virt(ctx: Ctx) -> None:
                              params={"status": v.status, "node": v.node or ""}))
     if running or stopped:
         ctx.gap("virt", "virt_ha_not_modeled", affected="workloads")
+
+
+async def _virt_owners(ctx: Ctx) -> dict[Any, Any]:
+    """叢集 → 同步它的虛擬化整合（時效與出處用；以前虛擬機的證據一律寫「未知」）。"""
+    out: dict[Any, Any] = {}
+    for kind, table in (("proxmox", "proxmox_instances"), ("esxi", "esxi_instances"), ("hyperv", "hyperv_instances")):
+        for iid, cid in (await ctx.session.execute(text(
+                f"SELECT id, cluster_id FROM {table} WHERE cluster_id IS NOT NULL"))).all():  # noqa: S608 -- 表名是常數
+            src = ctx.source(kind, iid)
+            if src is not None and cid not in out:
+                out[cid] = src
+    return out
+
+
+def _rule_detail(interface: str | None, protocol: str | None, port: str | None) -> str | None:
+    """規則名稱後面帶的介面與埠：「wan2 TCP/443」。同名規則好幾條時才分得出來。"""
+    pp = f"{(protocol or '').upper()}/{port}" if port else (protocol or "").upper()
+    s = " ".join(x for x in (interface, pp) if x)
+    return s or None
 
 
 # ─────────────────── 憑證 ───────────────────

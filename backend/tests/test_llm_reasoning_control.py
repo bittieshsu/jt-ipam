@@ -213,3 +213,16 @@ def test_non_streamed_reply_cut_off_while_thinking_is_reported() -> None:
     assert ai_mod._answer_or_explain(ok, max_tokens=6000) == "{}"
     ollama = {"message": {"content": "x"}, "done_reason": "stop"}
     assert ai_mod._answer_or_explain(ollama, max_tokens=None) == "x"
+
+
+def test_answer_reports_when_the_output_limit_cut_it_off() -> None:
+    """有內容但被輸出上限切斷（finish_reason／done_reason＝length）：內容照回，但標 truncated，
+    呼叫端才能說「後面被截斷」或要求模型精簡重寫 —— 以前不說，JSON 只是被當成格式錯（2026-10-21）。"""
+    import app.services.ai as ai_mod
+    cut = ai_mod._answer_or_explain({"choices": [{"message": {"content": '{"a": "x'}, "finish_reason": "length"}]},
+                                    max_tokens=2000)
+    assert cut == '{"a": "x' and cut.truncated is True
+    whole = ai_mod._answer_or_explain({"message": {"content": "ok"}, "done_reason": "stop"}, max_tokens=None)
+    assert whole == "ok" and whole.truncated is False
+    assert ai_mod.with_truncation_note(cut, "zh-TW").endswith("（回答達到輸出長度上限，後面被截斷）")
+    assert ai_mod.with_truncation_note(whole, "zh-TW") == "ok"

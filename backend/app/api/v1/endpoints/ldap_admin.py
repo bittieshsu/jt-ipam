@@ -143,6 +143,9 @@ async def put_ldap(
     data["bind_dn"] = ldap_auth.normalize_dn(payload.bind_dn) or None
     data["search_base"] = ldap_auth.normalize_dn(payload.search_base) or None
     data["admin_groups"] = [g for g in (ldap_auth.normalize_dn(x) for x in payload.admin_groups) if g]
+    if len(payload.user_filter or "") > ldap_auth.FILTER_MAX_LEN:
+        raise HTTPException(422, detail=ui_detail(
+            "ldap_filter_too_long", "使用者篩選條件太長", max=ldap_auth.FILTER_MAX_LEN))
     flt = ldap_auth.normalize_filter(payload.user_filter)
     if "{username}" not in flt:
         raise HTTPException(422, detail=ui_detail(

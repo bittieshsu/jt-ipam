@@ -71,13 +71,10 @@ MIN_BATCH_TOKENS = 800    # 再怎麼小的上下文也要放得下幾筆資料�
 # 就算上下文放得下，一批也不放超過這麼多筆。實測（gemma4:26b）：一批塞滿 13k token
 # 要跑超過 15 分鐘，中途完全沒有進度可言；切小之後每批以分鐘計，進度也才看得出來。
 MAX_IPS_PER_BATCH = 60
-# 單批產出上限。會思考的模型（gemma4 等）思考過程也算在這個額度裡，所以留得比
-# 「40 筆發現需要的長度」寬很多。刻意不送 Ollama 的 `think:false` 去省額度 ——
-# 那是模型相依的參數，不支援的模型會直接報錯，換一個模型就壞掉。
-# 沒有上限時模型可能卡在重複輸出的迴圈裡，把整個逾時燒完才失敗
-# （實測：一批寫到 54,000 字還沒停）。超過上限被切斷不再是災難 —— 解析會撿回已經
-# 寫完的那幾筆（見 _salvage_findings）—— 但留寬一點讓它正常寫完仍然比較好。
-MAX_OUTPUT_TOKENS = 6000
+# 單批產出上限：依實際的上下文長度自動計算（ai.output_budget，2026-10-21 起不再寫死 6000）。
+# 會思考的模型思考過程也算在額度裡；被切斷時解析會撿回已經寫完的那幾筆（見 _salvage_findings）。
+# 切批時要先預留回覆的空間（OUTPUT_SHARE），否則資料把上下文塞滿、回覆只剩一點點。
+OUTPUT_SHARE = 0.35
 
 
 # 同時只允許一次巡檢。LLM 通常只有一張卡，兩次同時跑不是變快，是互相拖死
@@ -615,14 +612,10 @@ def _parse(raw: str, locale: str = "zh-TW") -> list[dict[str, Any]] | None:
 
 
 def estimate_tokens(text: str) -> int:
-    """粗估 token 數。寧可高估 —— 低估的代價是提示詞被截掉而模型完全不照指示做。
-
-    英數約 4 字元 1 token，中日韓大致 1 字 1 token。這不精準，但用途只是決定要切幾批，
-    偏保守就夠了。（實測踩過：360 筆 IP 一次送，超出 num_ctx=16384，提示詞被截掉，
-    模型改寫了一篇網路環境介紹回來。）
-    """
-    cjk = sum(1 for ch in text if ord(ch) > 0x2E7F)
-    return cjk + (len(text) - cjk) // 4 + 1
+    """粗估 token 數（寧可高估）；與輸出上限共用 ai.estimate_tokens 那一份。
+    （實測踩過：360 筆 IP 一次送，超出 num_ctx=16384，提示詞被截掉，模型改寫了一篇網路環境介紹回來。）"""
+    from app.services.ai import estimate_tokens as _est
+    return _est(text)
 
 
 def _batches(snapshot: dict[str, Any], budget_tokens: int) -> list[dict[str, Any]]:
@@ -661,7 +654,8 @@ def _budget_tokens(cfg: Any) -> int:
 
     留給指示與模型回覆的空間要先扣掉 —— 把整個上下文都塞滿輸入，模型連話都答不完。
     """
-    return max(audit_num_ctx(cfg) - RESERVED_TOKENS, MIN_BATCH_TOKENS)
+    ctx = audit_num_ctx(cfg)
+    return max(ctx - RESERVED_TOKENS - int(ctx * OUTPUT_SHARE), MIN_BATCH_TOKENS)
 
 
 async def run_audit(
@@ -755,7 +749,7 @@ async def _analyze(
         try:
             raw = await raw_chat(session, prompt + data_block(payload), timeout=AUDIT_TIMEOUT,
                                  model=cfg.ai_audit_model, force_json=True,
-                                 max_output_tokens=MAX_OUTPUT_TOKENS, no_thinking=True,
+                                 max_output_tokens="auto", no_thinking=True,
                                  num_ctx=cfg.ai_audit_num_ctx,
                                  on_chunk=_on_chunk if want_progress else None)
         except AINotConfigured as exc:

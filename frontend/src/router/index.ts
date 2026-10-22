@@ -57,6 +57,14 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/views/RustDeskFilesConsole.vue"),
   },
   {
+    // 戰情室（大螢幕看板，2026-10-21）：不套 MainLayout、不走登入守衛 —— 電視可以只帶顯示權杖，
+    // 頁面自己判斷（有權杖用權杖；沒有就照一般登入流程）
+    path: "/warroom",
+    name: "warroom",
+    meta: { public: true },
+    component: () => import("@/views/warroom/WarRoom.vue"),
+  },
+  {
     path: "/",
     component: () => import("@/components/layout/MainLayout.vue"),
     children: [
@@ -176,6 +184,7 @@ const routes: RouteRecordRaw[] = [
       { path: "virt-admin", name: "virt_admin", component: () => import("@/views/Virtualization.vue"), meta: { admin: true } },
       { path: "esxi", name: "esxi_admin", component: () => import("@/views/ESXiAdmin.vue"), meta: { admin: true } },
       { path: "hyperv", name: "hyperv_admin", component: () => import("@/views/HyperVAdmin.vue"), meta: { admin: true } },
+      { path: "warroom-settings", name: "warroom-settings", component: () => import("@/views/WarroomSettings.vue"), meta: { admin: true } },
       { path: "cabling", name: "cabling", component: () => import("@/views/Physical.vue"), props: { mode: "cabling" } },
       { path: "power", name: "power", component: () => import("@/views/Physical.vue"), props: { mode: "power" } },
       { path: "vpn", name: "vpn-tunnels", component: () => import("@/views/Physical.vue"), props: { mode: "vpn" } },

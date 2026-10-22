@@ -212,7 +212,8 @@ async def _send(session: AsyncSession, *, event: str, users: list[User], plan: C
             return
         url = str(get_settings().app_public_url).rstrip("/") + link
         for u in users:
-            if u.email:
+            from app.services.notification import deliverable_email
+            if deliverable_email(u.email):
                 await send_email_via_config(ch, to=u.email, subject=f"[jt-ipam] {title}",
                                             body_text=f"{body}\n\n{url}\n", body_html=None)
     except Exception as exc:

@@ -36,10 +36,10 @@ import {
   requestSftpTicket, resetSshHostKey, type SftpEntry, type SshCredential,
 } from "@/api/ssh";
 import { fmtDateTime } from "@/utils/datetime";
-import { useTablePagination } from "@/composables/useTablePagination";
+import { useFileListPagination } from "@/composables/useFileListPagination";
 import {
   RefreshIcon, FilesIcon, CancelIcon, DeleteIcon, EditIcon,
-  DownloadIcon, UploadIcon, NewFolderIcon, FilterIcon, SortAscIcon, MoveIcon, UpLevelIcon,
+  DownloadIcon, UploadIcon, NewFolderIcon, FilterIcon, SortAscIcon, MoveIcon, UpLevelIcon, ChevronRightIcon,
 } from "@/icons";
 
 const props = defineProps<{
@@ -963,8 +963,11 @@ const shownEntries = computed(() => {
   });
 });
 
-// 目錄很大時分頁顯示 —— 原本只能截斷後說「只顯示一部分」，現在整份都拿得到、翻頁看
-const pagination = useTablePagination();
+// 目錄很大時分頁顯示 —— 原本只能截斷後說「只顯示一部分」，現在整份都拿得到、翻頁看。
+// 每頁 1000 筆，超過時左下角有「還有 N 筆在下一頁」（見 useFileListPagination）
+const { pagination, remaining: moreEntries, nextCount, next: nextPage, reset: resetPage } =
+  useFileListPagination(computed(() => shownEntries.value.length));
+watch(cwd, () => resetPage());
 
 // ── 批次作業
 const checkedKeys = ref<string[]>([]);
@@ -1461,6 +1464,12 @@ onBeforeUnmount(() => { try { ws?.close(); } catch { /* 已關閉 */ } });
                       @update:checked-row-keys="(k: any) => (checkedKeys = k as string[])"
                       @update:sorter="onSorterChange" />
       </div>
+      <div v-if="moreEntries > 0" class="file-more" data-testid="sftp-more">
+        <n-button size="small" @click="nextPage">
+          {{ t("sftp.more_on_next_page", { n: nextCount, total: moreEntries }) }}
+          <template #icon><n-icon><ChevronRightIcon /></n-icon></template>
+        </n-button>
+      </div>
       </div>
     </div>
 
@@ -1584,4 +1593,5 @@ html[data-theme="dark"] .sftp-panel { background: #10161f; border-color: rgba(20
 /* 上傳進度自己一個 class：跟篩選提示共用時，「畫面上有幾個提示」這種
    斷言會同時命中兩個，測試會以 strict mode 失敗（實際踩過）。 */
 .sftp-upload-note { font-size: 12px; opacity: .7; margin-bottom: 6px; }
+.file-more { display: flex; justify-content: flex-start; padding: 6px 2px 0; }
 </style>

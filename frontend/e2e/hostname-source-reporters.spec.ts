@@ -39,7 +39,7 @@ test("來源標籤：回報者、幾天前、名稱不同", async ({ page, reque
   const nbTip = page.getByTestId("hostname-src-tip-netbios");
   await expect(nbTip).toContainText("e2e-name-agent");
   await expect(nbTip).toContainText("和目前採用的名稱「e2e-fileserver-prod.corp.example」不同");
-  await expect(nbTip).toContainText(/最後看到 \d{4}/);
+  await expect(nbTip).toContainText(/最後出現 \d{4}/);
 
   // 三天沒人回報：標籤上直接看得到
   await expect(page.getByTestId("hostname-src-age-mdns")).toContainText("3 天前");

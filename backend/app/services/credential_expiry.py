@@ -32,7 +32,7 @@ EVENT = "credential.expiring"
 class Credential:
     #: 去重用的穩定識別（換了一把新的就換一個）
     object_id: uuid.UUID
-    kind: str                 # mcp_key / api_token / graylog_dsv / rack_embed
+    kind: str                 # mcp_key / api_token / graylog_dsv / rack_embed / warroom_display
     name: str
     expires_at: datetime
     link: str
@@ -82,8 +82,11 @@ async def _system_credentials(session: AsyncSession, admins: list[User]) -> list
     if cfg.mcp_api_key and cfg.mcp_api_key_expires_at:
         out.append(Credential(system_credential_id("mcp_key", cfg.mcp_api_key_expires_at), "mcp_key",
                               "MCP API key", cfg.mcp_api_key_expires_at, "/llm", admins))
+    from app.services.warroom.config import get_display_credential
     for kind, getter, link, label in (("graylog_dsv", get_graylog_dsv, "/graylog-dsv", "Graylog DSV"),
-                                      ("rack_embed", get_rack_embed, "/racks", "Rack embed")):
+                                      ("rack_embed", get_rack_embed, "/racks", "Rack embed"),
+                                      ("warroom_display", get_display_credential, "/warroom-settings",
+                                       "War room display")):
         v: dict[str, Any] = await getter(session)
         exp = v.get("token_expires_at")
         if v.get("enabled") and v.get("token_set", bool(v.get("token"))) and isinstance(exp, datetime):

@@ -702,6 +702,9 @@ onMounted(() => {
             <template #icon><n-icon><PlusIcon /></n-icon></template>
             {{ t("virt.add_proxmox") }}
           </n-button>
+          <n-button type="info" ghost data-testid="proxmox-view-vms" @click="router.push({ name: 'virt' })">
+            <template #icon><n-icon><VirtualizationIcon /></n-icon></template>{{ t("virt.view_vms") }}
+          </n-button>
           <ColumnPicker :all="proxmoxP.items" :visible="proxmoxP.visibleKeys"
                         @update:visible="proxmoxP.setVisible" @reset="proxmoxP.reset"
                         :order="proxmoxP.order" @update:order="proxmoxP.setOrder" />

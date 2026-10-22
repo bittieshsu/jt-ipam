@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from sqlalchemy import func, select
+from sqlalchemy import false, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import append_audit
@@ -146,10 +146,10 @@ async def authenticate(
         # email 允許重複（同一人常同時有本機與 LDAP 帳號），所以 email 這一路
         # 必須限定在 LDAP 帳號內，否則會撈到同 email 的本機帳號去改它；
         # 且不可用 scalar_one_or_none（多筆同 email 會炸 MultipleResultsFound）
+        ldap_by_email = ((User.email == username) & (User.auth_provider == "ldap")) if "@" in username else false()
         user = (await session.execute(
             select(User).where(
-                (User.username == stored)
-                | ((User.email == username) & (User.auth_provider == "ldap")),
+                (User.username == stored) | ldap_by_email,
             ).order_by((User.username == stored).desc()).limit(1)   # 帳號精準命中優先
         )).scalars().first()
         if user is not None:
@@ -167,25 +167,10 @@ async def authenticate(
             await session.commit()
             raise InvalidCredentials from exc
         if user is None:
-            # email 唯一：若 LDAP 回的 email 已被別的帳號（例如同名本機帳號）佔用，
-            # 改用領域命名空間的 email，避免自動建帳號因 unique 衝突而失敗
-            prov_email = info.email or f"{account}@ldap.local"
-            if prov_email:
-                taken = (await session.execute(
-                    select(User.id).where(User.email == prov_email))).first()
-                if taken:
-                    # 依序退到領域命名空間的 email；仍撞號就加短隨機碼，
-                    # 保證自動建帳號不會因 unique 衝突而整個登入失敗
-                    import uuid as _uuid4
-
-                    for cand in (f"{account}@ldap.local", f"{stored}@ldap.local",
-                                 f"{account}-{_uuid4.uuid4().hex[:8]}@ldap.local"):
-                        if not (await session.execute(
-                                select(User.id).where(User.email == cand))).first():
-                            prov_email = cand
-                            break
+            # 目錄沒有 email 就留空：以前會塞「帳號@ldap.local」，通知信寄過去只會被退信。
+            # email 早就不是唯一鍵（0120），不必再為了避開撞號編地址
             user = User(
-                username=stored, email=prov_email,
+                username=stored, email=(info.email or "").strip(),
                 display_name=info.display_name, auth_provider="ldap",
                 external_subject=info.dn, is_active=True, is_admin=info.is_admin,
             )
@@ -233,9 +218,10 @@ async def authenticate(
     # ───────────── 本機 realm（預設）─────────────
     # 同上：email 可重複 → 以 email 登入時排除 LDAP 帳號（那要走 ldap 領域），
     # 並以帳號精準命中優先、取一筆，避免 MultipleResultsFound
+    # email 是選用的，空字串不是一個 email：只有看起來像 email 的輸入才比對 email 欄位
+    by_email = (User.email == username) & (User.auth_provider != "ldap") if "@" in (username or "") else false()
     stmt = (select(User).where(
-        (User.username == username)
-        | ((User.email == username) & (User.auth_provider != "ldap")),
+        (User.username == username) | by_email,
     ).order_by((User.username == username).desc()).limit(1))
     user = (await session.execute(stmt)).scalars().first()
     if user is None:

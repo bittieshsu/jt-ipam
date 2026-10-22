@@ -83,6 +83,7 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("users", "last_login_ip"): "歷史：使用者上次登入的來源位址",
     ("user_sessions", "ip"): "歷史：登入工作階段的來源位址（使用者從哪裡登入，不是網路上的設備或服務）",
     ("ip_change_log", "ip_text"): "歷史：IP 異動記錄",
+    ("anomaly_observations", "ip"): "歷史：異常偵測每一筆出現到消失的期間（戰情室時序用），不是設定裡的引用",
     ("rustdesk_audit_events", "ip"): "歷史：RustDesk 稽核事件",
     ("rustdesk_audit_events", "src_ip"): "歷史：RustDesk 稽核事件",
     ("cert_agents", "last_source_ip"): "觀察值：代理下次回報自己更新",

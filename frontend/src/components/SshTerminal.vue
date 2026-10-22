@@ -7,7 +7,7 @@ import ConsoleRouteNote from "@/components/ConsoleRouteNote.vue";
  * SSH 終端機（xterm.js）。先換 ticket → 開 WebSocket → 橋接後端 asyncssh。
  * 憑證（密碼/私鑰）只在連線時送出，前端不保存。Host key 採 TOFU：首次顯示指紋確認後由後端釘選。
  */
-import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NForm, NFormItem, NInput, NInputNumber, NRadioGroup, NRadio, NButton,
@@ -26,6 +26,7 @@ import { TerminalIcon, CancelIcon, RefreshIcon, DeleteIcon } from "@/icons";
 import ConsoleDisconnectedOverlay from "@/components/ConsoleDisconnectedOverlay.vue";
 import GuacView from "@/components/GuacView.vue";
 import { consoleEngineLabel } from "@/utils/consoleEngine";
+import { isLinuxTarget } from "@/utils/sshHints";
 
 const props = withDefaults(defineProps<{
   addressId: string;
@@ -34,7 +35,19 @@ const props = withDefaults(defineProps<{
   deviceName?: string | null;
   defaultPort?: number;
   fullHeight?: boolean;
-}>(), { defaultPort: 22, fullHeight: false, hostname: null, deviceName: null });
+  osFamily?: string | null;
+  osGuess?: string | null;
+}>(), { defaultPort: 22, fullHeight: false, hostname: null, deviceName: null, osFamily: null, osGuess: null });
+
+/** 連到 Linux 時提示搭配 tmux／screen（10-22 使用者要求）：瀏覽器斷線或關掉分頁時 SSH 工作階段結束，
+ *  裡面跑的程式會跟著被結束。可以按「不再顯示」，記在這個瀏覽器（讀寫失敗就照常顯示）。 */
+const TMUX_HINT_KEY = "jtipam.ssh.tmuxHintDismissed";
+const tmuxHintOff = ref((() => { try { return localStorage.getItem(TMUX_HINT_KEY) === "1"; } catch { return false; } })());
+const showTmuxHint = computed(() => !tmuxHintOff.value && isLinuxTarget(props.osFamily, props.osGuess));
+function dismissTmuxHint() {
+  tmuxHintOff.value = true;
+  try { localStorage.setItem(TMUX_HINT_KEY, "1"); } catch { /* 無痕模式等：這次關掉就好 */ }
+}
 
 const FONT_MIN = 9;
 const FONT_MAX = 24;
@@ -447,6 +460,11 @@ onBeforeUnmount(teardown);
 
         <ConsoleRouteNote :address-id="props.addressId" />
 
+        <n-alert v-if="showTmuxHint" type="info" :show-icon="true" closable style="margin-bottom:10px"
+                 data-testid="ssh-tmux-hint" @close="dismissTmuxHint">
+          {{ t("ssh.tmux_hint") }}
+        </n-alert>
+
         <n-alert :show-icon="false" type="info" style="margin-bottom:10px">
           {{ selectedCredId ? t("ssh.use_saved_hint") : (remember ? t("ssh.store_hint") : t("ssh.no_store_hint")) }}
         </n-alert>
@@ -493,6 +511,10 @@ onBeforeUnmount(teardown);
           </n-button>
         </n-space>
       </div>
+      <n-alert v-if="showTmuxHint && phase !== 'error' && phase !== 'form'" type="info" :show-icon="true" closable
+               style="margin:6px 0" data-testid="ssh-tmux-hint" @close="dismissTmuxHint">
+        {{ t("ssh.tmux_hint") }}
+      </n-alert>
       <n-alert v-if="phase === 'error'" type="error" :show-icon="true" style="margin:8px 0">
         {{ errorMsg }}
         <div v-if="errorCode === 'console_host_key_mismatch'" class="hostkey-reset" data-testid="ssh-hostkey-reset">

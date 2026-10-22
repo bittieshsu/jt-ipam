@@ -151,16 +151,54 @@ def normalize_dn(dn: str | None) -> str:
 _DN_VALUED = {"memberof", "distinguishedname", "manager", "member", "directreports", "objectcategory"}
 
 
+#: 篩選條件的長度上限（存檔時檢查；LDAP 篩選條件不會這麼長）
+FILTER_MAX_LEN = 1024
+
+
+def _squeeze_filter_spaces(s: str) -> str:
+    """去掉結構上多餘的空白：`(` 後、`)` 前、`)(` 之間、`&|!` 與 `(` 之間；`{ username }` → `{username}`。
+
+    逐字元掃一遍（線性）。以前用 `\\s+\\)` 這類正規表示式，一長串不接 `)` 的空白會變成平方級
+    （CodeQL #55 py/polynomial-redos，2026-10-21）。
+    """
+    out: list[str] = []
+    i, n = 0, len(s)
+    while i < n:
+        ch = s[i]
+        if ch.isspace():
+            j = i
+            while j < n and s[j].isspace():
+                j += 1
+            prev = out[-1][-1:] if out else ""
+            nxt = s[j] if j < n else ""
+            drop = prev == "(" or nxt == ")" or (nxt == "(" and prev in (")", "&", "|", "!"))
+            if not drop:
+                out.append(s[i:j])
+            i = j
+            continue
+        if ch == "{":
+            j = i + 1
+            while j < n and s[j].isspace():
+                j += 1
+            if s.startswith("username", j):
+                k = j + len("username")
+                while k < n and s[k].isspace():
+                    k += 1
+                if k < n and s[k] == "}":
+                    out.append("{username}")
+                    i = k + 1
+                    continue
+        out.append(ch)
+        i += 1
+    return "".join(out).strip()
+
+
 def normalize_filter(flt: str | None) -> str:
     """拿掉篩選條件裡結構上多餘的空白（客戶 2026-10-21）：括號內外、&|! 後面、等號兩邊、`{ username }`。
 
     值裡面的空白（`(cn=John Smith)`）保留；值是 DN 的屬性（memberOf 等）照 normalize_dn。
     """
-    s = re.sub(r"\{\s*username\s*\}", "{username}", (flt or "").strip())
-    s = re.sub(r"\(\s+", "(", s)
-    s = re.sub(r"\s+\)", ")", s)
-    s = re.sub(r"\)\s+\(", ")(", s)
-    s = re.sub(r"([&|!])\s+\(", r"\1(", s)
+    s = _squeeze_filter_spaces((flt or "").strip())
 
     def leaf(m: re.Match[str]) -> str:
         body = m.group(1)

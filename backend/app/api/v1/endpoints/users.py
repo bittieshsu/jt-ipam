@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import EmailStr, field_validator
+from pydantic import field_validator
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,9 +59,22 @@ class UserRead(StrictModel):
         return str(v).split("/", 1)[0]
 
 
+_EMAIL_RE = __import__("re").compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _clean_email(v: str | None) -> str:
+    """Email 是選用的（2026-10-22：給電視之類的帳號不需要信箱）：空白＝沒有；填了要像個 email。
+    email 不是身分（username 才是），只拿來寄通知信。"""
+    v = (v or "").strip()
+    if v and not _EMAIL_RE.match(v):
+        from app.core.ui_error import ui_detail
+        raise HTTPException(422, detail=ui_detail("user_email_invalid", "email address is not valid", value=v[:80]))
+    return v
+
+
 class UserCreate(StrictModel):
     username: str
-    email: EmailStr | str
+    email: str | None = None
     display_name: str | None = None
     password: str
     is_admin: bool = False
@@ -136,7 +149,7 @@ async def create_user(
         raise HTTPException(400, detail="password too short (≥ 12 chars)")
     user = User(
         username=payload.username,
-        email=str(payload.email),
+        email=_clean_email(payload.email),
         display_name=payload.display_name,
         password_hash=hash_password(payload.password),
         auth_provider="local",
@@ -193,6 +206,8 @@ async def update_user(
         if admin_count <= 1:
             raise HTTPException(409, detail="cannot demote or deactivate the last active admin")
 
+    if "email" in data:
+        data["email"] = _clean_email(data["email"])
     new_pwd = data.pop("password", None)
     unlock = data.pop("unlock", False)
     new_username = data.pop("username", None)

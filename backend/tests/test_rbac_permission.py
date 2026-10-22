@@ -98,7 +98,7 @@ async def test_group_grant_and_wildcard(db_session):
 
 async def test_seed_default_roles_idempotent(db_session):
     n1 = await P.seed_default_roles(db_session)
-    assert n1 == 5
+    assert n1 == len(P.DEFAULT_ROLES)          # 6：10-22 加入戰情室檢視者
     n2 = await P.seed_default_roles(db_session)
     assert n2 == 0
     # 系統管理員 角色有 7 個 wildcard admin 授權

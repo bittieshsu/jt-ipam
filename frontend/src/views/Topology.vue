@@ -33,6 +33,7 @@ import { usePinnedSubnets } from "@/composables/usePinnedSubnets";
 import { useExportBusy } from "@/composables/useExportBusy";
 import { useFillHeight } from "@/composables/usePageFill";
 import { saveBlob } from "@/utils/saveFile";
+import { assignOwners, gridPositions, nodeLabels, packRows, ringPositions, segmentsFor } from "@/utils/topologyLayout";
 
 cytoscape.use(coseBilkent as any);
 
@@ -70,6 +71,13 @@ const viewModeOptions = computed(() => [
 // 「只看…」的模式自己決定要抓什麼，勾選框在那兩種模式下沒有意義（會互相矛盾）
 const modeDrivesSources = computed(() => viewMode.value === "l2" || viewMode.value === "l3");
 const onlineOnly = ref(false);   // 預設：不管上線與否都畫
+// 以交換器為中心時，主機到交換器的線預設不畫（只畫交換器到接入群組的一條），點了裝置才顯示它的線與埠號。
+// 每台主機各拉一條會交叉成一團，埠號也碎得讀不下去（2026-10-21 分析者建議）
+const showAllAccess = ref(false);
+/** 目前選取的節點：它的接入連線要顯示出來 */
+const focusId = ref<string | null>(null);
+/** 這一張圖是不是「以交換器為中心」的分層版面（有存取層資料才是） */
+const switchView = ref(false);
 const loading = ref(false);
 // 超大規模：裝置太多時後端不建圖，只回裝置數與上限
 const tooLarge = ref<{ devices: number; limit: number } | null>(null);
@@ -154,6 +162,8 @@ const HIDDEN_FIELDS = new Set([
   "rack_id", "location_id", "subnet_uuid", "label",
   // 連線兩端資訊改用專屬區塊呈現，這裡不重複列出
   "source_port", "target_port", "a_endpoint", "b_endpoint", "ip",
+  // 分層版面自己的欄位：接入資訊另外排在最上面（selectedRows）
+  "dlabel", "parent", "isGroup", "pending", "own", "owner_switch", "owner_port", "owner_direct", "also_learned",
 ]);
 
 function displayValue(key: string, val: any): string {
@@ -177,9 +187,21 @@ function displayValue(key: string, val: any): string {
 const selectedRows = computed(() => {
   const d = selected.value;
   if (!d) return [];
-  return Object.keys(d)
+  const rows = Object.keys(d)
     .filter((k) => !HIDDEN_FIELDS.has(k) && d[k] != null && d[k] !== "")
     .map((k) => ({ key: k, label: FIELD_LABELS.value[k] ?? k, value: displayValue(k, d[k]) }));
+  if (!d.owner_switch) return rows;
+  // 接在哪裡：放最上面。FDB 只能證明「這個 MAC 在那個埠後面」，不等於實體接線 ——
+  // 埠上只有這一台才說「埠上只有這台」，其餘標「待交叉確認」（參考設計）
+  const access = [
+    { key: "owner_switch", label: t("topology.owner_switch"), value: String(d.owner_switch) },
+    { key: "owner_port", label: t("topology.owner_port"), value: d.owner_port ? String(d.owner_port) : "—" },
+    { key: "basis", label: t("topology.relation_basis"), value: t("topology.via_fdb") },
+    { key: "confidence", label: t("topology.confidence"),
+      value: d.owner_direct ? t("topology.conf_direct") : t("topology.conf_cross_check") },
+  ];
+  if (d.also_learned) access.push({ key: "also", label: t("topology.also_learned"), value: String(d.also_learned) });
+  return [...access, ...rows];
 });
 const selectedTitle = computed(() =>
   selected.value ? (selected.value.label ?? selected.value.id ?? t("topology.element")) : "",
@@ -199,6 +221,10 @@ const selectedSubnetId = computed<string | null>(() => {
 });
 function goDevice() {
   if (selectedDeviceId.value) router.push({ name: "device-detail", params: { id: selectedDeviceId.value } });
+}
+function goMac() {
+  const mac = selected.value?.mac;
+  if (mac) router.push({ name: "mac-history", params: { mac: String(mac) } });
 }
 function goSubnet() {
   if (selectedSubnetId.value) router.push({ name: "subnet-detail", params: { id: selectedSubnetId.value } });
@@ -223,6 +249,40 @@ const topoBarEl = ref<HTMLElement | null>(null);
 const shellEl = ref<HTMLElement | null>(null);
 const fill = useFillHeight(shellEl, topoBarEl, { min: 420 });
 watch(fill.height, () => requestAnimationFrame(() => cy?.resize()));
+
+/**
+ * 類型用圖示分，不用填滿的顏色：紅色的圓點會被當成「異常」（分析者指出路由器是紅的，看不出是類型還是狀態）。
+ * 圖示是 24×24 的線條圖，用類型色描邊，放在白底的圓角方塊裡；名稱放在方塊下方。
+ */
+const ICON_PATHS: Record<string, string> = {
+  router: '<circle cx="12" cy="12" r="9"/><path d="M12 6v12M6 12h12M9.5 8.5 12 6l2.5 2.5M9.5 15.5 12 18l2.5-2.5M8.5 9.5 6 12l2.5 2.5M15.5 9.5 18 12l-2.5 2.5"/>',
+  switch: '<rect x="2.5" y="7" width="19" height="10" rx="1.5"/><path d="M6 11h1M9 11h1M12 11h1M15 11h1M18 11h1M6 14h1M9 14h1M12 14h1M15 14h1M18 14h1"/>',
+  firewall: '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9.3h18M3 14.7h18M9 4v5.3M15 9.3v5.4M9 14.7V20"/>',
+  ap: '<path d="M5 10a10 10 0 0 1 14 0M8 13.5a5.5 5.5 0 0 1 8 0"/><circle cx="12" cy="17" r="1.4"/>',
+  server: '<rect x="4" y="3.5" width="16" height="7" rx="1.2"/><rect x="4" y="13.5" width="16" height="7" rx="1.2"/><path d="M8 7h.01M8 17h.01"/>',
+  storage: '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.5"/><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"/>',
+  workstation: '<rect x="3" y="4" width="18" height="12" rx="1.2"/><path d="M8 20h8M12 16v4"/>',
+  ipmi: '<rect x="5" y="5" width="14" height="14" rx="1.5"/><path d="M9 9h6v6H9zM9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>',
+  vm: '<rect x="3" y="5" width="18" height="14" rx="1.5" stroke-dasharray="3 2"/><path d="M8 10l4 4 4-4"/>',
+  vpn_site: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  other: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 12h6"/>',
+};
+const ICON_COLOURS: Record<string, string> = {
+  router: "#4f46e5", switch: "#16a34a", firewall: "#dc2626", ap: "#2563eb", server: "#475569",
+  storage: "#d97706", workstation: "#0284c7", ipmi: "#db2777", vm: "#7c3aed", vpn_site: "#9333ea", other: "#64748b",
+};
+const iconCache = new Map<string, string>();
+function iconUri(type: string): string {
+  const k = ICON_PATHS[type] ? type : "other";
+  let u = iconCache.get(k);
+  if (!u) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="${ICON_COLOURS[k]}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[k]}</svg>`;
+    u = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    iconCache.set(k, u);
+  }
+  return u;
+}
+const isDark = () => document.documentElement.dataset.theme === "dark";
 
 const NODE_COLOURS: Record<string, string> = {
   router: "#6366f1",
@@ -278,6 +338,7 @@ function toggleGroup(group: string) {
   for (const ty of types) { if (off) next.delete(ty); else next.add(ty); }
   hiddenTypes.value = next;
   applyVisibility();
+  if (!switchView.value) spreadSubnets();     // 依子網路排版只排看得到的，顯示的類別變了要重排
 }
 function applyVisibility() {
   if (!cy) return;
@@ -299,7 +360,10 @@ function applyVisibility() {
       const endHidden = e.source().style("display") === "none"
         || e.target().style("display") === "none";
       const notAsserted = assertedOnly.value && e.data("evidence") !== "asserted";
-      e.style("display", endHidden || notAsserted ? "none" : "element");
+      // 分層版面：主機到交換器的線只畫選取中那台的（或勾了「顯示全部接入連線」）
+      const folded = switchView.value && e.data("kind") === "l2" && !e.data("backbone") && !showAllAccess.value
+        && focusId.value !== e.source().id() && focusId.value !== e.target().id();
+      e.style("display", endHidden || notAsserted || folded ? "none" : "element");
     });
   });
 }
@@ -332,26 +396,62 @@ function exportPng() {
   const blob = cy.png({ full: true, scale: 2, bg: "#ffffff", output: "blob" }) as Blob;
   dlBlob(blob, "ip-topology.png");
 }
+/** 匯出跟畫面同一套樣子：群組框（網段／接入群組／接入位置未確認）、白底圖示卡片、名稱在下方、
+ *  線依種類與證據畫實線或虛線。PNG 直接拿 cytoscape 畫的，SVG／draw.io 在這裡重建（不然又會跟畫面不一樣）。 */
+function boxesOf(): { id: string; label: string; x: number; y: number; w: number; h: number; type: string }[] {
+  return cy!.nodes().filter((n) => n.isParent() && n.style("display") !== "none").map((n) => {
+    const bb = n.boundingBox({});
+    return { id: n.id(), label: String(n.data("label") ?? ""), x: bb.x1, y: bb.y1, w: bb.w, h: bb.h,
+             type: String(n.data("type") ?? "subnet") };
+  });
+}
+function edgeLook(e: any): { color: string; width: number; dash: string } {
+  const kind = e.data("kind") as string;
+  if (e.data("pending")) return { color: "#94a3b8", width: 1.6, dash: "6,4" };
+  if (kind === "trunk") return { color: "#14b8a6", width: 2, dash: e.data("evidence") === "monitored" ? "" : "5,3" };
+  if (kind === "l2" || kind === "l2_uplink") {
+    const solid = ["asserted", "monitored"].includes(String(e.data("evidence"))) || (kind === "l2" && e.data("direct"));
+    return { color: "#0d9488", width: e.data("backbone") || kind === "l2_uplink" ? 2.6 : 1.6, dash: solid ? "" : "5,3" };
+  }
+  return EDGE_STYLE[kind] || { color: "#94a3b8", width: 2, dash: "" };
+}
 function exportSvg() {
   if (!cy) return;
   const { nodes, edges } = visibleEls();
-  if (!nodes.length) return;
-  const R = 19, pad = 50;
-  const pos = nodes.map((n) => n.position());
-  const minX = Math.min(...pos.map((p) => p.x)), maxX = Math.max(...pos.map((p) => p.x));
-  const minY = Math.min(...pos.map((p) => p.y)), maxY = Math.max(...pos.map((p) => p.y));
-  const W = (maxX - minX) + pad * 2, H = (maxY - minY) + pad * 2;
-  const X = (x: number) => x - minX + pad, Y = (y: number) => y - minY + pad;
+  const leaves = nodes.filter((n: any) => !n.isParent());
+  if (!leaves.length) return;
+  const boxes = boxesOf();
+  const bb = cy.elements().filter((x) => x.style("display") !== "none").boundingBox({});
+  const pad = 40;
+  const W = bb.w + pad * 2, H = bb.h + pad * 2;
+  const X = (x: number) => x - bb.x1 + pad, Y = (y: number) => y - bb.y1 + pad;
   let s = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(W)}" height="${Math.round(H)}" viewBox="0 0 ${Math.round(W)} ${Math.round(H)}" font-family="sans-serif"><rect width="100%" height="100%" fill="#ffffff"/>`;
+  for (const b of boxes) {
+    const c = b.type === "access" ? "#14b8a6" : b.type === "unplaced" ? "#94a3b8" : "#0ea5e9";
+    s += `<rect x="${X(b.x)}" y="${Y(b.y)}" width="${b.w}" height="${b.h}" rx="8" fill="${c}" fill-opacity="0.05" stroke="${c}" stroke-dasharray="5,3"/>`;
+    s += `<text x="${X(b.x) + 10}" y="${Y(b.y) - 6}" font-size="12" font-weight="700" fill="${c}">${escXml(b.label)}</text>`;
+  }
   edges.forEach((e) => {
-    const sp = e.source().position(), tp = e.target().position();
-    const st = EDGE_STYLE[e.data("kind") as string] || { color: "#94a3b8", width: 2, dash: "" };
-    s += `<line x1="${X(sp.x)}" y1="${Y(sp.y)}" x2="${X(tp.x)}" y2="${Y(tp.y)}" stroke="${st.color}" stroke-width="${st.width}"${st.dash ? ` stroke-dasharray="${st.dash}"` : ""}/>`;
+    const sp = e.source().position();
+    // 連到群組框的（交換器 → 接入群組）停在框的上緣，跟畫面一樣，不畫進框的正中間
+    const tp = e.target().isParent() ? { x: e.target().position().x, y: e.target().boundingBox({}).y1 }
+      : e.target().position();
+    const st = edgeLook(e);
+    const pts = e.data("kind") === "vpn" && e.style("curve-style") === "segments"
+      ? (e as any).segmentPoints?.() ?? [] : [];
+    const path = [sp, ...pts, tp].map((p: any, k: number) => `${k ? "L" : "M"}${X(p.x)},${Y(p.y)}`).join(" ");
+    s += `<path d="${path}" fill="none" stroke="${st.color}" stroke-width="${st.width}"${st.dash ? ` stroke-dasharray="${st.dash}"` : ""}/>`;
+    const lbl = e.data("kind") === "l2" || e.data("kind") === "l2_uplink" ? (e.data("label") || e.data("port")) : "";
+    if (lbl) s += `<text x="${(X(sp.x) + X(tp.x)) / 2}" y="${(Y(sp.y) + Y(tp.y)) / 2 - 4}" font-size="10" text-anchor="middle" fill="#0f766e">${escXml(lbl)}</text>`;
   });
-  nodes.forEach((n) => {
-    const p = n.position(); const fill = NODE_COLOURS[n.data("type") as string] || NODE_COLOURS.other;
-    s += `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="${R}" fill="${fill}"/>`;
-    s += `<text x="${X(p.x)}" y="${Y(p.y) + 3}" font-size="10" font-weight="600" text-anchor="middle" fill="#fff" paint-order="stroke" stroke="#0f172a" stroke-width="0.6">${escXml(n.data("label"))}</text>`;
+  leaves.forEach((n: any) => {
+    const p = n.position(); const ty = String(n.data("type") || "other");
+    const col = ICON_COLOURS[ICON_PATHS[ty] ? ty : "other"];
+    s += `<rect x="${X(p.x) - 21}" y="${Y(p.y) - 21}" width="42" height="42" rx="7" fill="#ffffff" stroke="${col}" stroke-width="1.5"/>`;
+    s += `<g transform="translate(${X(p.x) - 13},${Y(p.y) - 13}) scale(1.0833)" fill="none" stroke="${col}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[ICON_PATHS[ty] ? ty : "other"]}</g>`;
+    String(n.data("dlabel") ?? n.data("label") ?? "").split("\n").forEach((line, k) => {
+      s += `<text x="${X(p.x)}" y="${Y(p.y) + 36 + k * 13}" font-size="11" text-anchor="middle" fill="#0f172a">${escXml(line)}</text>`;
+    });
   });
   s += `</svg>`;
   dlBlob(new Blob([s], { type: "image/svg+xml" }), "ip-topology.svg");
@@ -359,21 +459,29 @@ function exportSvg() {
 function exportDrawio() {
   if (!cy) return;
   const { nodes, edges } = visibleEls();
-  if (!nodes.length) return;
-  const pos = nodes.map((n) => n.position());
-  const minX = Math.min(...pos.map((p) => p.x)), minY = Math.min(...pos.map((p) => p.y));
+  const leaves = nodes.filter((n: any) => !n.isParent());
+  if (!leaves.length) return;
+  const bb = cy.elements().filter((x) => x.style("display") !== "none").boundingBox({});
+  const ox = (x: number) => Math.round(x - bb.x1 + 40), oy = (y: number) => Math.round(y - bb.y1 + 40);
   const cells: string[] = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>'];
   const id: Record<string, string> = {};
-  nodes.forEach((n, i) => {
+  boxesOf().forEach((b, i) => {
+    id[b.id] = `b${i}`;                // 交換器 → 接入群組的線接在框上
+    const c = b.type === "access" ? "#14b8a6" : b.type === "unplaced" ? "#94a3b8" : "#0ea5e9";
+    cells.push(`<mxCell id="b${i}" value="${escXml(b.label)}" style="rounded=1;arcSize=4;dashed=1;fillColor=none;strokeColor=${c};fontColor=${c};fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="${ox(b.x)}" y="${oy(b.y)}" width="${Math.round(b.w)}" height="${Math.round(b.h)}" as="geometry"/></mxCell>`);
+  });
+  leaves.forEach((n: any, i: number) => {
     id[n.id()] = `n${i}`; const p = n.position();
-    const fill = NODE_COLOURS[n.data("type") as string] || NODE_COLOURS.other;
-    cells.push(`<mxCell id="n${i}" value="${escXml(n.data("label"))}" style="ellipse;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=#0f172a;fontColor=#ffffff;" vertex="1" parent="1"><mxGeometry x="${Math.round(p.x - minX + 40)}" y="${Math.round(p.y - minY + 40)}" width="56" height="56" as="geometry"/></mxCell>`);
+    const ty = String(n.data("type") || "other");
+    const col = ICON_COLOURS[ICON_PATHS[ty] ? ty : "other"];
+    const label = escXml(String(n.data("dlabel") ?? n.data("label") ?? "")).replace(/\n/g, "&#10;");
+    cells.push(`<mxCell id="n${i}" value="${label}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=${col};fontColor=#0f172a;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;" vertex="1" parent="1"><mxGeometry x="${ox(p.x) - 21}" y="${oy(p.y) - 21}" width="42" height="42" as="geometry"/></mxCell>`);
   });
   edges.forEach((e, i) => {
-    const st = EDGE_STYLE[e.data("kind") as string] || { color: "#94a3b8", width: 2, dash: "" };
+    const st = edgeLook(e);
     if (!id[e.source().id()] || !id[e.target().id()]) return;
-    const style = `endArrow=none;html=1;strokeColor=${st.color};strokeWidth=${st.width};${st.dash ? "dashed=1;" : ""}`;
-    cells.push(`<mxCell id="e${i}" style="${style}" edge="1" parent="1" source="${id[e.source().id()]}" target="${id[e.target().id()]}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
+    const style = `endArrow=none;html=1;strokeColor=${st.color};strokeWidth=${st.width};${st.dash ? "dashed=1;" : ""}${e.data("kind") === "vpn" ? "edgeStyle=orthogonalEdgeStyle;" : ""}`;
+    cells.push(`<mxCell id="e${i}" value="${escXml(String(e.data("kind") === "l2_uplink" || e.data("backbone") ? (e.data("label") || e.data("port") || "") : ""))}" style="${style}" edge="1" parent="1" source="${id[e.source().id()]}" target="${id[e.target().id()]}"><mxGeometry relative="1" as="geometry"/></mxCell>`);
   });
   const xml = `<mxfile host="jt-ipam"><diagram name="IP topology"><mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" connect="1" arrows="1" page="1" pageScale="1"><root>${cells.join("")}</root></mxGraphModel></diagram></mxfile>`;
   dlBlob(new Blob([xml], { type: "application/xml" }), "ip-topology.drawio");
@@ -518,6 +626,81 @@ function groupBySubnet(data: TopologyData): TopologyData {
   };
 }
 
+/**
+ * 以交換器為中心的分層：每台交換器一個「接入群組」框，插在它上面的主機放進去，交換器只拉一條線到自己的群組。
+ *
+ * 同一台主機在兩台交換器的 FDB 都學得到時只歸一個群組（直連的埠優先，見 utils/topologyLayout.assignOwners），
+ * 另一條標成待確認 —— 兩邊都學到多半只是一邊是存取埠、一邊是上聯埠，不能當成雙接。
+ * 主機與交換器不在同一個網段框裡時不搬（不把它拉進別人的網段）。
+ */
+function buildAccessGroups(input: TopologyData): TopologyData {
+  // 節點與連線的資料在這裡會多出版面用的欄位（parent、owner_*），型別放寬
+  const data = input as unknown as { nodes: { data: any }[]; edges: { data: any }[] };
+  const byId = new Map(data.nodes.map((n) => [n.data.id, n]));
+  // 交換器、路由器、防火牆不進接入群組：別台交換器在某個埠學到它，是上聯／骨幹，不是一台終端。
+  // 這種線常駐顯示、帶埠號（以前一台交換器被當成主機塞進另一台交換器的群組）
+  const INFRA = new Set(["switch", "router", "firewall"]);
+  const isInfra = (id: string) => INFRA.has(String(byId.get(id)?.data.type ?? ""));
+  const backbone = new Set(data.edges.filter((e) => e.data.kind === "l2" && isInfra(e.data.source))
+    .map((e) => e.data.id));
+  const l2 = data.edges.filter((e) => e.data.kind === "l2" && !backbone.has(e.data.id));
+  if (!l2.length && !backbone.size) return data;
+  const order: string[] = [];
+  for (const e of l2) if (!order.includes(e.data.target)) order.push(e.data.target);
+  const owners = assignOwners(l2.map((e) => ({
+    id: e.data.id, source: e.data.source, target: e.data.target, port: e.data.port,
+    direct: e.data.direct, port_mac_count: e.data.port_mac_count,
+  })), order);
+  const pendingEdges = new Set<string>();
+  const ownEdges = new Set<string>();
+  const groupOf = new Map<string, string>();
+  const groups: { data: any }[] = [];
+  const trunks: { data: any }[] = [];
+  const nodes = data.nodes.map((n) => ({ data: { ...n.data } }));
+  const nodeById = new Map(nodes.map((n) => [n.data.id, n]));
+  for (const [host, o] of owners) {
+    ownEdges.add(o.edge);
+    o.others.forEach((id) => pendingEdges.add(id));
+    const hn = nodeById.get(host);
+    const sw = byId.get(o.switch);
+    if (!hn || !sw) continue;
+    hn.data.owner_switch = sw.data.label;
+    hn.data.owner_port = o.port;
+    hn.data.owner_direct = o.direct;
+    hn.data.also_learned = o.others.map((id) => {
+      const e = l2.find((x) => x.data.id === id);
+      const s2 = e ? byId.get(e.data.target) : null;
+      return s2 ? `${s2.data.label}${e?.data.port ? ` ${e.data.port}` : ""}` : "";
+    }).filter(Boolean).join("、") || null;
+    if ((hn.data.parent ?? null) !== (sw.data.parent ?? null)) continue;
+    let gid = groupOf.get(o.switch);
+    if (!gid) {
+      gid = `acc:${o.switch}`;
+      groupOf.set(o.switch, gid);
+      groups.push({ data: { id: gid, label: t("topology.access_group", { name: sw.data.label }), type: "access",
+                            isGroup: true, parent: sw.data.parent } } as never);
+      trunks.push({ data: { id: `trunk:${o.switch}`, source: o.switch, target: gid, kind: "trunk",
+                            evidence: "learned" } } as never);
+    }
+    hn.data.parent = gid;
+  }
+  // 整組都是直連的埠 → 交換器到群組這條畫實線
+  for (const tr of trunks) {
+    const sw = tr.data.source;
+    const allDirect = [...owners.values()].filter((o) => o.switch === sw).every((o) => o.direct);
+    if (allDirect) tr.data.evidence = "monitored";
+  }
+  return {
+    nodes: [...nodes, ...groups] as never,
+    edges: [
+      ...data.edges.map((e) => (e.data.kind !== "l2" ? e
+        : { data: { ...e.data, pending: pendingEdges.has(e.data.id) || undefined, own: ownEdges.has(e.data.id) || undefined,
+                    backbone: backbone.has(e.data.id) || undefined } })),
+      ...trunks,
+    ] as never,
+  };
+}
+
 function render(data: TopologyData) {
   if (!containerRef.value) return;
   if (cy) {
@@ -528,25 +711,47 @@ function render(data: TopologyData) {
     container: containerRef.value,
     elements: (() => {
       const m = viewMode.value;
-      const grouped = m === "l2" || m === "l3" ? data
+      let grouped = m === "l2" || m === "l3" ? data
         : groupBySubnet(data);   // auto / switch：網段與交換器合成一組
+      const hasL2 = grouped.edges.some((e) => e.data.kind === "l2" || e.data.kind === "l2_uplink");
+      switchView.value = m !== "l3" && hasL2;
+      if (switchView.value) grouped = buildAccessGroups(grouped);
+      // 名稱放在圖示下方、最多兩行；同名的補 IP（例：兩台 AP 同名）
+      const labels = nodeLabels((grouped.nodes as { data: any }[]).filter((n) => !n.data.isGroup && n.data.type !== "subnet")
+        .map((n) => ({ id: n.data.id, label: n.data.label, ip: n.data.ip })),
+        (i, n) => t("topology.same_name", { i, n }));
+      grouped = { ...grouped, nodes: grouped.nodes.map((n) => (labels.has(n.data.id)
+        ? { data: { ...n.data, dlabel: labels.get(n.data.id) } } : n)) as never };
       return [...grouped.nodes, ...grouped.edges];
     })(),
     style: [
       {
+        // 圖示卡片：白底圓角方塊＋類型圖示，名稱放在下方（最多兩行，見 nodeLabels）。
+        // 以前名稱直接壓在小圓點上，長名稱比節點還寬、讀不出來
         selector: "node",
         style: {
-          "background-color": ((node: any) =>
-            NODE_COLOURS[node.data("type") as string] || NODE_COLOURS.other) as any,
-          label: "data(label)",
-          color: "#fff",
-          "text-outline-color": "#0f172a",
-          "text-outline-width": 1,
+          shape: "round-rectangle" as any,
+          width: 42,
+          height: 42,
+          "background-color": isDark() ? "#1e293b" : "#ffffff",
+          "border-width": 1.5,
+          "border-color": isDark() ? "#475569" : "#cbd5e1",
+          "background-image": ((node: any) => iconUri(String(node.data("type") || "other"))) as any,
+          "background-fit": "none",
+          "background-width": "26px",
+          "background-height": "26px",
+          label: "data(dlabel)",
+          color: isDark() ? "#e2e8f0" : "#0f172a",
           "font-size": 11,
-          "text-valign": "center",
+          "text-valign": "bottom",
           "text-halign": "center",
-          width: 38,
-          height: 38,
+          "text-margin-y": 5,
+          "text-wrap": "wrap",
+          "text-max-width": "150px",
+          "text-background-color": isDark() ? "#0f172a" : "#ffffff",
+          "text-background-opacity": 0.85,
+          "text-background-padding": "1px",
+          "text-background-shape": "roundrectangle",
         },
       },
       {
@@ -669,6 +874,14 @@ function render(data: TopologyData) {
           shape: "round-rectangle",
           width: 70,
           height: 28,
+          "background-image": "none",
+          "background-color": NODE_COLOURS.subnet,
+          "border-width": 0,
+          label: "data(label)",
+          color: "#fff",
+          "text-valign": "center",
+          "text-margin-y": 0,
+          "text-background-opacity": 0,
           "font-size": 10,
           "font-weight": "bold",
         },
@@ -677,6 +890,9 @@ function render(data: TopologyData) {
         // 網段框（混合視角）：標題放在框上緣，框本身淡到不搶戲
         selector: "node[?isGroup]",
         style: {
+          "background-image": "none",
+          "text-background-opacity": 0,
+          "text-wrap": "none",
           shape: "round-rectangle",
           width: "label" as any,
           height: "label" as any,
@@ -715,30 +931,55 @@ function render(data: TopologyData) {
         },
       },
       {
-        // 虛擬機：畫得比實體小一點，一眼分得出這不是實體機
+        // 虛擬機：畫得比實體小一點、虛線框，一眼分得出這不是實體機
         selector: 'node[type = "vm"]',
+        style: { width: 32, height: 32, "background-width": "20px", "background-height": "20px",
+                 "border-style": "dashed", "font-size": 9 },
+      },
+      {
+        // 以交換器為中心：每台交換器的接入群組框（比網段框淡，標題說明是哪台的）
+        selector: 'node[type = "access"]',
         style: {
-          shape: "round-rectangle",
-          width: 46,
-          height: 26,
-          "background-color": "#8b5cf6",
-          "font-size": 9,
+          "background-color": "#14b8a6",
+          "background-opacity": 0.05,
+          "border-color": "#14b8a6",
+          "border-style": "dashed",
+          "border-width": 1,
+          "border-opacity": 0.7,
+          "font-size": 11,
+          "font-weight": "bold",
+          color: isDark() ? "#5eead4" : "#0f766e",
+          "text-halign": "center",
+          "text-margin-y": -4,
+          padding: "20px" as any,
         },
       },
       {
-        selector: 'node[type = "vpn_site"]',
-        style: {
-          shape: "diamond",
-          width: 44,
-          height: 44,
-          "font-size": 10,
-        },
+        // 交換器 → 自己的接入群組：一條線代表整組。整組都是直連的埠才畫實線，否則是 FDB 推導（虛線）
+        selector: 'edge[kind = "trunk"]',
+        style: { "line-color": "#14b8a6", width: 2, "line-style": "dashed", "curve-style": "straight" },
+      },
+      { selector: 'edge[kind = "trunk"][evidence = "monitored"]', style: { "line-style": "solid" } },
+      {
+        // 同一台在別台交換器也被學到：待確認（不是雙接的證據）
+        selector: "edge[?pending]",
+        style: { "line-color": "#94a3b8", "line-style": "dashed", "line-dash-pattern": [6, 4], opacity: 0.9 },
+      },
+      {
+        // 分層版面：交換器／路由器在別台交換器的埠上被學到 → 上聯，常駐顯示、帶埠號、畫得比接入線重
+        selector: "edge[?backbone]",
+        style: { width: 2.6, "line-color": "#0d9488", "font-weight": "bold", "font-size": 10 },
+      },
+      {
+        // 骨幹是 FDB 推得的（兩台互相學到對方）：虛線；鄰居探索回報的維持實線
+        selector: 'edge[kind = "l2_uplink"][evidence = "learned"]',
+        style: { "line-style": "dashed" },
       },
       {
         selector: "node:selected",
         style: {
-          "border-width": 4,
-          "border-color": "#fbbf24",
+          "border-width": 3,
+          "border-color": "#f59e0b",
         },
       },
       {
@@ -771,6 +1012,8 @@ function render(data: TopologyData) {
     evt.target.select();                 // 維持選定高亮
     edgeEnds.value = null;
     selected.value = { ...evt.target.data() };
+    focusId.value = evt.target.data("isGroup") ? null : evt.target.id();
+    applyVisibility();
   });
   cy.on("tap", "edge", (evt) => {
     evt.cy.elements().unselect();
@@ -789,6 +1032,8 @@ function render(data: TopologyData) {
       evt.cy.elements().unselect();
       edgeEnds.value = null;
       selected.value = null;
+      focusId.value = null;
+      applyVisibility();
     }
   });
   // 有 FDB 存取層邊的端點＝查得出位置的，預設放行（見 hiddenTypes 上方說明）
@@ -829,23 +1074,28 @@ function arrangeLayout() {
  */
 function arrangeSwitchCentric() {
   if (!cy) return;
-
-  // 交換器＝存取層邊的「交換器端」（l2 邊的 target 就是交換器）＋骨幹兩端
+  /*
+   * 分層（2026-10-21 依分析者建議與參考設計改版）：
+   *   第一層  路由器／防火牆（閘道）
+   *   第二層  交換器一排，骨幹線在這一層橫向相連
+   *   第三層  每台交換器自己的接入群組（框），主機排成格子
+   *   第四層  同網段但查不出接在哪台交換器的（「接入位置未確認」）
+   * 其他網段的框排在下方；VPN 從整張圖的右外側繞（routeVpnOutside）。
+   * 力導向版面沒有上下的概念，所以座標自己算。
+   */
+  const visible = (n: any) => n.style("display") !== "none";
   const centres: string[] = [];
   const seen = new Set<string>();
+  const addCentre = (id: string) => { if (!seen.has(id)) { seen.add(id); centres.push(id); } };
+  cy.nodes('[type = "access"]').forEach((g) => addCentre(String(g.id()).slice(4)));
   cy.edges('[kind = "l2"]').forEach((e) => {
-    const id = e.target().id();
-    if (!seen.has(id)) { seen.add(id); centres.push(id); }
+    addCentre(e.target().id());
+    if (e.data("backbone") && e.source().data("type") === "switch") addCentre(e.source().id());
   });
-  cy.edges('[kind = "l2_uplink"]').forEach((e) => {
-    for (const n of [e.source(), e.target()]) {
-      if (!seen.has(n.id())) { seen.add(n.id()); centres.push(n.id()); }
-    }
-  });
+  cy.edges('[kind = "l2_uplink"]').forEach((e) => { addCentre(e.source().id()); addCentre(e.target().id()); });
   if (!centres.length) { spreadSubnets(); return; }
 
-  // 交換器的左右順序：有骨幹相連的排在一起。否則骨幹線會從第三台交換器身上穿過去，
-  // 線上的埠名也剛好蓋在那台的名字上 —— 圖沒有錯，但看起來像壞掉。
+  // 有骨幹相連的交換器排在一起，骨幹線才不會穿過第三台
   const adj = new Map<string, string[]>();
   cy.edges('[kind = "l2_uplink"]').forEach((e) => {
     const [a, b] = [e.source().id(), e.target().id()];
@@ -855,7 +1105,6 @@ function arrangeSwitchCentric() {
   const ordered: string[] = [];
   const queued = new Set<string>();
   for (const start of centres) {
-    if (queued.has(start)) continue;
     const stack = [start];
     while (stack.length) {
       const id = stack.pop()!;
@@ -865,149 +1114,268 @@ function arrangeSwitchCentric() {
       for (const nb of adj.get(id) ?? []) if (!queued.has(nb)) stack.push(nb);
     }
   }
-  centres.length = 0;
-  centres.push(...ordered);
 
-  const visible = (n: any) => n.style("display") !== "none";
-  const hostsOf = new Map<string, any>();
-  for (const id of centres) {
-    hostsOf.set(id, cy.getElementById(id).connectedEdges('[kind = "l2"]').sources()
-      .filter((n: any) => n.id() !== id && visible(n)));
-  }
-
-  // 間距跟著實際節點數走。寫死大間距的話，節點少時整張圖會被 fit() 縮到看不清標籤 ——
-  // 版面「結構對」跟「看得懂」是兩回事，量過才知道。
-  // 主機排在交換器上方的網格（每列最多 3 台）。原本用半圓扇形，主機一多就把整張圖
-  // 拉得很寬 —— 實測 8 台主機 ×3 台交換器時整體寬 2274px、縮放掉到 0.53，字全糊了。
-  // 有畫虛擬機時，每台主機底下要放得下一小格 VM，主機之間就得留更多空間；
-  // 沒畫時維持原本較緊的排法，不要為了用不到的東西把圖撐大。
   const hasVms = cy.edges('[kind = "vm_host"]').length > 0;
-  const HOST_PER_ROW = 3;
-  const HOST_DX = hasVms ? 215 : 145;
-  const HOST_DY = hasVms ? 155 : 105;
-  const HOST_TOP = hasVms ? 255 : 150;
-  const COL = Math.max(430, HOST_PER_ROW * HOST_DX + 110);
-  const MEMBER_DY = 165;   // 同網段但查不出埠的成員：排在交換器下面
-  const PER_ROW = 6;
+  const HOST_DX = hasVms ? 190 : 150;          // 名稱在圖示下方佔兩行，左右要留得下約 140px
+  const HOST_DY = hasVms ? 150 : 110;
+  const GROUP_TOP = 150;                       // 交換器到接入群組第一列
+  const SW_Y = 0;
+  const GW_Y = -190;                           // 閘道那一排
+  const placed = new Set<string>();
 
-  const placed = new Set<string>(centres);
-  const x0 = -((centres.length - 1) * COL) / 2;
-  let lowestY = 0;
-
-  centres.forEach((swId, ci) => {
-    const sw = cy!.getElementById(swId);
-    const cx = x0 + ci * COL;
-    sw.position({ x: cx, y: 0 });
-
-    // 插在這台交換器上的機器：上方扇形（多的話分兩層，免得擠成一條）
-    const hosts = hostsOf.get(swId).filter((h: any) => !placed.has(h.id()));
-    const n = hosts.length;
-    hosts.forEach((h: any, i: number) => {
-      placed.add(h.id());
-      const row = Math.floor(i / HOST_PER_ROW);
-      const inRow = Math.min(HOST_PER_ROW, n - row * HOST_PER_ROW);
-      const col = (i % HOST_PER_ROW) - (inRow - 1) / 2;
-      h.position({ x: cx + col * HOST_DX, y: -(HOST_TOP + row * HOST_DY) });
-    });
-
-  });
-
-  // 同一個網段裡「查不出插在哪個埠」的成員：置中排在**整個框**底下，而不是硬掛在
-  // 第一台交換器下面 —— 一個網段跨好幾台交換器（核心＋接取）是常態，沒有資訊說它們
-  // 屬於其中哪一台，挑一台就是編造。
-  const boxes = new Map<string, string[]>();
-  for (const id of centres) {
-    const box = cy.getElementById(id).parent();
-    if (box.nonempty()) {
-      const bid = box[0].id();
-      (boxes.get(bid) ?? boxes.set(bid, []).get(bid)!).push(id);
-    }
+  // 每台交換器那一欄的寬度依它的主機數決定（格子 2～4 欄），欄與欄之間留群組框的間距
+  const hostsOf = new Map<string, any[]>();
+  for (const id of ordered) {
+    const g = cy.getElementById(`acc:${id}`);
+    const kids = g.nonempty() ? g.children().filter((n: any) => visible(n) && n.data("type") !== "vm").toArray() : [];
+    kids.sort((a: any, b: any) => String(a.data("label")).localeCompare(String(b.data("label"))));
+    hostsOf.set(id, kids);
   }
-  boxes.forEach((swIds, boxId) => {
-    const centreX = swIds.reduce((a, id) => a + cy!.getElementById(id).position("x"), 0)
-      / swIds.length;
-    // 虛擬機不排進這格網格：它們要貼著自己的實體主機（見下方），
-    // 被掃進來的話會排到框底下，跟主機之間拉出一堆橫跨整張圖的長線。
-    // 用 descendants：網段框底下現在可能還有一層「位置未知」的次區塊
-    const members = cy!.getElementById(boxId).descendants()
-      .filter((c: any) => !c.isParent() && !placed.has(c.id()) && visible(c)
-        && c.data("type") !== "vm");
-    const mn = members.length;
-    // 每列幾個跟著數量走：固定 6 個一列時，一個有上百台的網段會排成十幾列的長條，
-    // 整張圖被拉得很高、縮放又掉下去。開根號讓它維持接近方形。
-    const perRow = Math.max(PER_ROW, Math.ceil(Math.sqrt(mn * 1.8)));
-    members.forEach((m2: any, j: number) => {
-      placed.add(m2.id());
-      const row = Math.floor(j / perRow);
-      const inRow = Math.min(perRow, mn - row * perRow);
-      const col = (j % perRow) - (inRow - 1) / 2;
-      const y = MEMBER_DY + row * 105;
-      m2.position({ x: centreX + col * 145, y });
+  const colsOf = (n: number) => (n <= 2 ? Math.max(n, 1) : n <= 6 ? 3 : 4);
+  const widthOf = (id: string) => Math.max(1, colsOf(hostsOf.get(id)!.length)) * HOST_DX;
+  const GAP = 90;
+  const total = ordered.reduce((a, id) => a + widthOf(id), 0) + GAP * (ordered.length - 1);
+  let x = -total / 2;
+  let lowestY = SW_Y;
+  for (const id of ordered) {
+    const w = widthOf(id);
+    const cx = x + w / 2;
+    x += w + GAP;
+    cy.getElementById(id).position({ x: cx, y: SW_Y });
+    placed.add(id);
+    const hosts = hostsOf.get(id)!;
+    const cols = colsOf(hosts.length);
+    hosts.forEach((h: any, i: number) => {
+      const row = Math.floor(i / cols);
+      const inRow = Math.min(cols, hosts.length - row * cols);
+      const col = (i % cols) - (inRow - 1) / 2;
+      const y = SW_Y + GROUP_TOP + row * HOST_DY;
+      h.position({ x: cx + col * HOST_DX, y });
+      placed.add(h.id());
       lowestY = Math.max(lowestY, y);
     });
+  }
+
+  // 閘道：路由器與防火牆排在交換器上方（在網段框裡的就留在框裡的最上面）
+  const gws = cy.nodes().filter((n) => !placed.has(n.id()) && !n.isParent() && visible(n)
+    && ["router", "firewall"].includes(String(n.data("type"))) && !hasOnlyVpnInOtherBox(n));
+  const gn = gws.length;
+  gws.forEach((n, i) => {
+    n.position({ x: (i - (gn - 1) / 2) * 220, y: GW_Y });
+    placed.add(n.id());
   });
 
-  // 虛擬機排在它所在實體主機的正下方（小格子）—— 它是「跑在上面」，不是網路鄰居，
-  // 位置貼著主機才讀得出這層關係。
-  const VM_PER_ROW = 2;
+  // 同網段、查不出接在哪台交換器的：整排放在接入群組下面（置中在整個網段框底下）
+  const unplacedY = lowestY + 170;
+  let nextY = unplacedY;
+  cy.nodes('[type = "unplaced"]').forEach((g) => {
+    const kids = g.children().filter((c: any) => visible(c) && !placed.has(c.id()) && c.data("type") !== "vm");
+    const kn = kids.length;
+    const perRow = Math.max(4, Math.ceil(Math.sqrt(kn * 2)));
+    kids.forEach((m2: any, j: number) => {
+      const row = Math.floor(j / perRow);
+      const inRow = Math.min(perRow, kn - row * perRow);
+      const col = (j % perRow) - (inRow - 1) / 2;
+      const y = unplacedY + row * 105;
+      m2.position({ x: col * HOST_DX, y });
+      placed.add(m2.id());
+      nextY = Math.max(nextY, y);
+    });
+  });
+  // 有交換器的網段框裡，其餘還沒排到的成員（沒有被分進群組的）也放這一區
+  const strayBox = cy.nodes().filter((n) => !placed.has(n.id()) && !n.isParent() && visible(n)
+    && n.data("type") !== "vm" && n.ancestors().some((a: any) => a.descendants().some((d: any) => centres.includes(d.id()))));
+  const sn = strayBox.length;
+  strayBox.forEach((n, j) => {
+    const row = Math.floor(j / 6);
+    const col = (j % 6) - (Math.min(6, sn - row * 6) - 1) / 2;
+    const y = nextY + 120 + row * 105;
+    n.position({ x: col * HOST_DX, y });
+    placed.add(n.id());
+    nextY = Math.max(nextY, y);
+  });
+
+  // 虛擬機：貼在所在實體主機的正下方
   cy.edges('[kind = "vm_host"]').forEach((e) => {
     const host = e.target();
     if (!placed.has(host.id())) return;
     const vms = host.connectedEdges('[kind = "vm_host"]').sources()
       .filter((n: any) => n.id() !== host.id() && visible(n));
-    const vn = vms.length;
     vms.forEach((vm: any, i: number) => {
       if (placed.has(vm.id())) return;
       placed.add(vm.id());
-      const row = Math.floor(i / VM_PER_ROW);
-      const inRow = Math.min(VM_PER_ROW, vn - row * VM_PER_ROW);
-      const col = (i % VM_PER_ROW) - (inRow - 1) / 2;
-      const y = host.position("y") + 52 + row * 32;
-      vm.position({ x: host.position("x") + col * 68, y });
-      lowestY = Math.max(lowestY, y);
+      const row = Math.floor(i / 2);
+      const col = (i % 2) - (Math.min(2, vms.length - row * 2) - 1) / 2;
+      vm.position({ x: host.position("x") + col * 60, y: host.position("y") + 62 + row * 46 });
     });
   });
 
-  // 框外的節點（跨網段的路由器 / 防火牆、VPN 對端…）：排在框下方一列，
-  // 不要散到很遠 —— 一顆放很遠的節點就足以把整張圖的縮放拉小、其他全變小字。
-  const rest = cy.nodes().filter(
-    (n) => !placed.has(n.id()) && !n.isParent() && visible(n),
-  );
-  const restY = lowestY + MEMBER_DY;
-  const rn = rest.length;
-  rest.forEach((n, i) => {
-    const row = Math.floor(i / PER_ROW);
-    const inRow = Math.min(PER_ROW, rn - row * PER_ROW);
-    const col = (i % PER_ROW) - (inRow - 1) / 2;
-    n.position({ x: col * 175, y: restY + row * 105 });
+  // 其他網段（沒有交換器的框）與框外的節點：依框分組排在下方，一框一列
+  const restY = nextY + 230;
+  const rest = cy.nodes().filter((n) => !placed.has(n.id()) && !n.isParent() && visible(n));
+  const byBox = new Map<string, any[]>();
+  rest.forEach((n) => {
+    const box = n.parent().nonempty() ? n.parent()[0].id() : "";
+    (byBox.get(box) ?? byBox.set(box, []).get(box)!).push(n);
   });
+  let rowY = restY;
+  for (const [, ns] of byBox) {
+    ns.sort((a: any, b: any) => String(a.data("label")).localeCompare(String(b.data("label"))));
+    const k = ns.length;
+    const perRow = Math.max(5, Math.ceil(Math.sqrt(k * 2)));
+    let maxRow = 0;
+    ns.forEach((n: any, i: number) => {
+      const row = Math.floor(i / perRow);
+      const col = (i % perRow) - (Math.min(perRow, k - row * perRow) - 1) / 2;
+      n.position({ x: col * HOST_DX, y: rowY + row * 110 });
+      maxRow = row;
+    });
+    rowY += (maxRow + 1) * 110 + 140;
+  }
 
+  routeVpnOutside();
+  // 接入群組的標題放在框的左上角：置中的話，交換器到群組那條線剛好壓在標題上
+  cy.nodes('[type = "access"], [type = "unplaced"]').forEach((g) => {
+    const w = g.boundingBox({}).w;
+    const lw = String(g.data("label") ?? "").length * 7;
+    g.style("text-margin-x", -w / 2 + lw / 2 + 14);
+  });
   cy.fit(undefined, 40);
+}
+
+/** VPN 對端（另一個網段框裡、只靠 VPN 連過來的防火牆）不拉到閘道那一排：留在它自己的網段框 */
+function hasOnlyVpnInOtherBox(n: any): boolean {
+  if (!n.parent().nonempty()) return false;
+  const box = n.parent()[0];
+  const hasSwitch = box.descendants().some((d: any) => d.data("type") === "switch");
+  return !hasSwitch;
+}
+
+/** VPN 從整張圖的右外側繞（折成ㄈ字），不從中間斜穿過網段框與節點 */
+function routeVpnOutside() {
+  if (!cy) return;
+  const vpns = cy.edges('[kind = "vpn"]').filter((e) => e.style("display") !== "none");
+  if (!vpns.length) return;
+  const bb = cy.nodes().filter((n) => n.style("display") !== "none").boundingBox({});
+  let lane = bb.x2 + 70;
+  let top = bb.y1 - 30;
+  vpns.forEach((e) => {
+    const s = e.source().position();
+    const t = e.target().position();
+    // 上面那一端先往上繞到整張圖的上緣，再往右走到外側車道，往下到另一端的高度再進去：
+    // 水平段才不會穿過同一排的其他節點（例：閘道那一排），也不會從中間直直穿過網段框
+    const pts = s.y <= t.y
+      ? [{ x: s.x, y: top }, { x: lane, y: top }, { x: lane, y: t.y }]
+      : [{ x: lane, y: s.y }, { x: lane, y: top }, { x: t.x, y: top }];
+    const { weights, distances } = segmentsFor(s, t, pts);
+    e.style({
+      "curve-style": "segments",
+      "edge-distances": "node-position",
+      "segment-weights": weights,
+      "segment-distances": distances,
+    } as any);
+    lane += 26;                      // 好幾條 VPN 各走一條外側車道，不疊在一起
+    top -= 18;
+  });
 }
 
 // 把多個 subnet 中心節點沿水平等距推開；只屬單一 subnet 的節點跟著平移，
 // 同時連多個 subnet 的裝置留在原處（落在兩團中間），避免被夾擠。
 function spreadSubnets() {
+  /*
+   * 依子網路排版（10-22 改寫）：同一個網段收成一團，網段與網段之間才拉開。
+   * 以前只把子網路節點左右推 760px，成員留在力導向散開的位置（整張圖一開始就很開）；
+   * 混合模式的子網路是框（複合節點），推框不會帶著成員走，框就互相重疊（使用者截圖）。
+   *   只看子網路：子網路節點在中間，成員繞一圈（ringPositions）
+   *   混合（框）：成員在框裡排成格子（gridPositions），框的大小跟著成員
+   *   跨兩個以上網段的（路由器、防火牆）：放在它連到的那幾團上方中間
+   * 純函式在 utils/topologyLayout.ts（有 vitest）。
+   */
   if (!cy) return;
-  const subs: any = cy.nodes().filter((n) => String(n.id()).startsWith("subnet:"));
-  if (subs.length < 2) return;
-  const cx = subs.reduce((a: number, n: any) => a + n.position("x"), 0) / subs.length;
-  const cyy = subs.reduce((a: number, n: any) => a + n.position("y"), 0) / subs.length;
-  const SPACING = 760;
-  subs.forEach((sn: any, i: number) => {
-    const tx = cx + (i - (subs.length - 1) / 2) * SPACING;
-    const dx = tx - sn.position("x");
-    const dy = cyy - sn.position("y");
-    sn.position({ x: tx, y: cyy });
-    sn.openNeighborhood().nodes().forEach((nbEle: any) => {
-      const nb = nbEle as any;
-      // VPN 端點（站對站對連的防火牆等）不跟著子網路被推到最遠端：留在 cose-bilkent
-      // 因 VPN 邊互相吸引而靠近的中間位置，VPN 對連線才不會被拉成橫跨全圖的長線。
-      if (nb.connectedEdges('[kind = "vpn"]').length > 0) return;
-      const conn = nb.openNeighborhood().nodes().filter((x: any) => String(x.id()).startsWith("subnet:"));
-      if (conn.length === 1 && conn[0].id() === sn.id()) {
-        nb.position({ x: nb.position("x") + dx, y: nb.position("y") + dy });
+  const isSub = (n: any) => String(n.id()).startsWith("subnet:");
+  const subs: any[] = cy.nodes().filter((n: any) => isSub(n) && n.style("display") !== "none").toArray();
+  if (!subs.length) return;
+  // 只排看得到的：被圖例或篩選藏起來的節點不可以佔位置（否則一團還是散得很開）
+  const shown = (n: any) => n.style("display") !== "none";
+  const home = new Map<string, string>();                   // 節點 → 它所屬的網段
+  for (const sn of subs) {
+    if (sn.isParent()) sn.descendants().forEach((d: any) => { if (!d.isParent() && shown(d)) home.set(d.id(), sn.id()); });
+  }
+  const leaves = cy.nodes().filter((n: any) => !isSub(n) && !n.isParent() && shown(n));
+  leaves.forEach((n: any) => {
+    if (home.has(n.id())) return;
+    const ss = n.openNeighborhood().nodes().filter((x: any) => isSub(x));
+    if (ss.length === 1) home.set(n.id(), ss[0].id());
+  });
+  // 自己沒有網段、只連到同一團的（例如虛擬機跟著主機）：跟著那一團
+  leaves.forEach((n: any) => {
+    if (home.has(n.id()) || n.openNeighborhood().nodes().filter((x: any) => isSub(x)).length) return;
+    const gs = new Set(n.openNeighborhood().nodes().map((x: any) => home.get(x.id())).filter(Boolean));
+    if (gs.size === 1) home.set(n.id(), [...gs][0] as string);
+  });
+
+  const members = new Map<string, any[]>();
+  for (const sn of subs) members.set(sn.id(), []);
+  leaves.forEach((n: any) => { const h = home.get(n.id()); if (h) members.get(h)!.push(n); });
+  const label = (n: any) => String(n.data("label") ?? n.id());
+  const groups = subs.map((sn) => {
+    const list = members.get(sn.id())!.sort((a, b) => label(a).localeCompare(label(b)));
+    const boxed = sn.isParent();
+    const rel = boxed ? gridPositions(list.length, 130, 110) : ringPositions(list.length, 96);
+    const xs = rel.map((p) => p.x), ys = rel.map((p) => p.y);
+    const pad = boxed ? 70 : 80;                             // 名稱在圖示下方，四周留得下
+    const minX = Math.min(0, ...xs) - pad, maxX = Math.max(0, ...xs) + pad;
+    const minY = Math.min(0, ...ys) - pad, maxY = Math.max(0, ...ys) + pad + 20;
+    return { sn, list, rel, boxed, minX, minY, w: maxX - minX, h: maxY - minY };
+  }).sort((a, b) => b.list.length - a.list.length || label(a.sn).localeCompare(label(b.sn)));
+
+  const area = groups.reduce((a, g) => a + g.w * g.h, 0);
+  const GAP = 220;                                           // 不同網段之間明顯拉開
+  const pos = packRows(groups.map((g) => ({ id: g.sn.id(), w: g.w, h: g.h })), GAP,
+                       Math.max(1600, Math.sqrt(area) * 1.8));
+  const centre = new Map<string, { x: number; y: number; top: number }>();
+  for (const g of groups) {
+    const tl = pos.get(g.sn.id())!;
+    centre.set(g.sn.id(), { x: tl.x - g.minX, y: tl.y - g.minY, top: tl.y });
+  }
+  // VPN 端點排到面向對方的那一側，對連線才不會穿過同一團的其他節點
+  for (const g of groups) {
+    const me = centre.get(g.sn.id())!;
+    const used = new Set<number>();
+    g.list.forEach((n: any, k: number) => {
+      const peers = n.connectedEdges('[kind = "vpn"]').connectedNodes().filter((x: any) => x.id() !== n.id());
+      const far = peers.map((x: any) => centre.get(home.get(x.id()) ?? "")).filter((c: any) => c && c !== me);
+      if (!far.length) return;
+      const dx = far[0].x - me.x, dy = far[0].y - me.y;
+      let best = k, score = -Infinity;
+      g.rel.forEach((r, i) => { const v = r.x * dx + r.y * dy; if (!used.has(i) && v > score) { score = v; best = i; } });
+      used.add(best);
+      [g.list[k], g.list[best]] = [g.list[best], g.list[k]];
+    });
+  }
+  cy.batch(() => {
+    for (const g of groups) {
+      const tl = pos.get(g.sn.id())!;
+      const ox = tl.x - g.minX, oy = tl.y - g.minY;          // (0,0) 的位置
+      if (!g.boxed) g.sn.position({ x: ox, y: oy });
+      g.list.forEach((n: any, k: number) => n.position({ x: ox + g.rel[k].x, y: oy + g.rel[k].y }));
+    }
+    // 跨網段的：放在連到的那幾團上方中間；同一個位置有人了就往右挪
+    const taken: { x: number; y: number }[] = [];
+    let spare = 0;
+    leaves.forEach((n: any) => {
+      if (home.has(n.id())) return;
+      const linked = n.openNeighborhood().nodes().map((x: any) => centre.get(x.id()) ?? centre.get(home.get(x.id()) ?? ""))
+        .filter(Boolean) as { x: number; y: number; top: number }[];
+      let p: { x: number; y: number };
+      if (linked.length) {
+        p = { x: linked.reduce((a, c) => a + c.x, 0) / linked.length, y: Math.min(...linked.map((c) => c.top)) - 120 };
+      } else {
+        p = { x: spare++ * 150, y: -240 };                   // 什麼都沒連到的排在最上面
       }
+      while (taken.some((q) => Math.abs(q.x - p.x) < 140 && Math.abs(q.y - p.y) < 100)) p = { x: p.x + 150, y: p.y };
+      taken.push(p);
+      n.position(p);
     });
   });
   cy.fit(undefined, 40);
@@ -1071,6 +1439,14 @@ onUnmounted(() => {
           {{ t("topology.asserted_only_hint") }}
         </n-tooltip>
         <n-checkbox v-model:checked="onlineOnly">{{ t("topology.online_only") }}</n-checkbox>
+        <n-tooltip v-if="switchView" trigger="hover">
+          <template #trigger>
+            <n-checkbox v-model:checked="showAllAccess" data-testid="topology-all-access" @update:checked="applyVisibility">
+              {{ t("topology.all_access_links") }}
+            </n-checkbox>
+          </template>
+          {{ t("topology.all_access_links_hint") }}
+        </n-tooltip>
         <n-button-group>
           <n-button @click="zoomBy(1.2)" :title="t('topology.zoom_in')">＋</n-button>
           <n-button @click="zoomBy(0.83)" :title="t('topology.zoom_out')">－</n-button>
@@ -1130,6 +1506,9 @@ onUnmounted(() => {
             <n-button v-if="selectedDeviceId" size="small" type="primary" ghost block @click="goDevice">
               {{ t("topology.open_device") }}
             </n-button>
+            <n-button v-if="selectedDeviceId && selected?.mac" size="small" block style="margin-top: 6px" @click="goMac">
+              {{ t("topology.open_mac_history") }}
+            </n-button>
             <n-button v-else size="small" type="primary" ghost block @click="goSubnet">
               {{ t("topology.open_subnet") }}
             </n-button>
@@ -1137,7 +1516,16 @@ onUnmounted(() => {
         </n-card>
       </div>
     </n-spin>
-    <div class="topo-legend">
+    <!-- 分層版面的圖例：只講這張圖用到的四種線（參考設計） -->
+    <div v-if="switchView" class="topo-legend" data-testid="topology-legend-layered">
+      <span class="lg lg-head">{{ t("topology.legend_links") }}</span>
+      <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#0d9488" stroke-width="2.5"/></svg>{{ t("topology.legend_neighbor") }}</span>
+      <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#14b8a6" stroke-width="2" stroke-dasharray="5,3"/></svg>{{ t("topology.legend_fdb") }}</span>
+      <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#94a3b8" stroke-width="2" stroke-dasharray="6,4"/></svg>{{ t("topology.legend_pending") }}</span>
+      <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#9333ea" stroke-width="3" stroke-dasharray="8,4"/></svg>{{ t("topology.legend_vpn") }}</span>
+      <span class="lg muted">{{ t("topology.layered_hint") }}</span>
+    </div>
+    <div v-else class="topo-legend">
       <span class="lg lg-head">{{ t("topology.legend_links") }}</span>
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#475569" stroke-width="2"/></svg>{{ t("topology.kind_cable") }}</span>
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#3b82f6" stroke-width="2" stroke-dasharray="5,3"/></svg>{{ t("topology.kind_wireless") }}</span>

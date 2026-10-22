@@ -629,8 +629,7 @@ async def test_output_length_is_capped(monkeypatch, db_session):
 
     monkeypatch.setattr(aa, "get_llm_config", lambda s: _coro(_Cfg()))
     await aa.run_audit(db_session, _FakeUser())
-    assert seen.get("max_output_tokens") == aa.MAX_OUTPUT_TOKENS
-    assert 0 < aa.MAX_OUTPUT_TOKENS <= 8000
+    assert seen.get("max_output_tokens") == "auto"            # 依 LLM 設定的上下文自動計算
 
 
 async def test_raw_chat_passes_num_predict_to_ollama(monkeypatch, db_session):

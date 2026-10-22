@@ -55,6 +55,8 @@ async function cleanup(request: APIRequestContext, H: Record<string, string>, op
 }
 
 test("憑證 → 收集目標 → 測試 → 使用中的憑證刪不掉 → 裝置詳情", async ({ page, request }) => {
+  // 一整串流程，單獨跑就要 27 秒，預設 30 秒在發版 e2e 平行跑時會超過（10-22 發版時逾時一次）
+  test.setTimeout(60_000);
   const H = await token(request);
   const tag = `snmp${Date.now().toString(36)}`;
   const credName = `${tag}-v2c`;

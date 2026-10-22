@@ -13,7 +13,7 @@
  * - 稽核是瀏覽器自報的（後端看不到檔案），畫面上要講清楚
  * - 受控端給的檔名與路徑只當文字顯示（不用 v-html），下載的檔名先過濾（safeDownloadName）
  */
-import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import ConnElapsed from "@/components/ConnElapsed.vue";
 import { useI18n } from "vue-i18n";
 import {
@@ -29,7 +29,7 @@ import { apiErrMsg } from "@/api/client";
 import { srvText } from "@/utils/wsError";
 import { fmtDateTime } from "@/utils/datetime";
 import { sortEntries } from "@/utils/sftpSort";
-import { useTablePagination } from "@/composables/useTablePagination";
+import { useFileListPagination } from "@/composables/useFileListPagination";
 import {
   checkUploadLimits, FileOpError, RdFileSession, type ConflictAnswer, type ConflictInfo, type FileJobView,
   type FileLimits, type UploadSource,
@@ -39,8 +39,8 @@ import { FileType, isDirType, joinPath, parentPath, type FileEntry } from "@/rdw
 import type { CloseInfo, PasswordReason, Phase } from "@/rdweb/session";
 import type { MessageBox } from "@/rdweb/messages";
 import {
-  CancelIcon, DeleteIcon, DownloadIcon, EditIcon, FilesIcon, FilterIcon, NewFolderIcon, RefreshIcon, UpLevelIcon,
-  UploadIcon,
+  CancelIcon, ChevronRightIcon, DeleteIcon, DownloadIcon, EditIcon, FilesIcon, FilterIcon, NewFolderIcon, RefreshIcon,
+  UpLevelIcon, UploadIcon,
 } from "@/icons";
 
 const props = withDefaults(defineProps<{
@@ -150,7 +150,10 @@ const rows = computed<Row[]>(() => {
     }));
   return sortEntries(list, { key: "name", order: "ascend", dirsFirst: true });
 });
-const pagination = useTablePagination();
+// 與 SFTP 同一套：每頁 1000 筆，超過時左下角有「還有 N 筆在下一頁」
+const { pagination, remaining: moreEntries, nextCount, next: nextPage, reset: resetPage } =
+  useFileListPagination(computed(() => rows.value.length));
+watch(cwd, () => resetPage());
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -884,6 +887,12 @@ onBeforeUnmount(() => {
           <n-data-table :columns="cols" :data="rows" :loading="busy" size="small" :row-key="(r: Row) => r.key"
                         :pagination="pagination" :bordered="false" flex-height style="height:100%" virtual-scroll />
         </div>
+        <div v-if="moreEntries > 0" class="file-more" data-testid="rdfile-more">
+          <n-button size="small" @click="nextPage">
+            {{ t("sftp.more_on_next_page", { n: nextCount, total: moreEntries }) }}
+            <template #icon><n-icon><ChevronRightIcon /></n-icon></template>
+          </n-button>
+        </div>
       </div>
 
       <!-- 傳輸佇列：一次一個，其他的排隊 -->
@@ -1050,4 +1059,5 @@ html[data-theme="dark"] .rdf-panel { background: #10161f; border-color: rgba(200
 .rdf-job-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .rdf-job-err { color: #d03050; opacity: 1; }
 :deep(.n-card > .n-card-header) { display: flex; align-items: center; padding-top: 12px; padding-bottom: 12px; }
+.file-more { display: flex; justify-content: flex-start; padding: 6px 2px 0; }
 </style>

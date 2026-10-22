@@ -67,6 +67,7 @@ import {
   Expand,
   Reduce,
   NavArrowDown,
+  NavArrowRight,
   OpenNewWindow,
   DoubleCheck,
   // Admin / 安全
@@ -339,6 +340,7 @@ export const ExpandIcon = Expand;                  // 重新調整大小 / 自�
 export const ReduceIcon = Reduce;                  // 原始解析度（1:1）
 export const KeyIcon = Key;                        // 送出按鍵
 export const ChevronDownIcon = NavArrowDown;
+export const ChevronRightIcon = NavArrowRight;
 export const OpenNewWindowIcon = OpenNewWindow;
 
 export function renderIcon(Icon: any, size = 18) {

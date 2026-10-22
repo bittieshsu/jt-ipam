@@ -24,7 +24,8 @@ const msg = useMessage();
 interface Change {
   id: string; source_type: string; instance_name: string; taken_at: string;
   rule_count: number; is_baseline: boolean;
-  diff: { added: any[]; removed: any[]; changed: any[] } | null;
+  diff: { added: any[]; removed: any[]; changed: any[];
+          auto?: { added: any[]; removed: any[]; changed: any[] } } | null;
   ack: { at: string; note: string } | null;
 }
 const items = ref<Change[]>([]);
@@ -52,10 +53,38 @@ function ruleLine(r: any): string {
   return `${r.action || "?"} ${r.src || "any"} → ${r.dst || "any"}${port}${descr}`;
 }
 
-type DiffKind = "add" | "del" | "chg";
-const KIND_TAG: Record<DiffKind, "error" | "default" | "warning"> = {
-  add: "error", del: "default", chg: "warning",
+type DiffKind = "add" | "del" | "chg" | "sys";
+const KIND_TAG: Record<DiffKind, "error" | "default" | "warning" | "info"> = {
+  add: "error", del: "default", chg: "warning", sys: "info",
 };
+
+/* 系統自動規則（10-22：一台 OPNsense 升級韌體後被列成「新增 28 條」）：防火牆依設定自己產生的規則
+ * （anti-lockout、預設拒絕、封鎖表…），不是管理員改的。收成一行摘要、可展開；只有這種變動的那一筆不需要確認。 */
+const expanded = ref<Set<string>>(new Set());
+const hasUserChange = (r: Change) => !!r.diff && !!(r.diff.added?.length || r.diff.removed?.length || r.diff.changed?.length);
+function autoLines(row: Change): { kind: DiffKind; text: string }[] {
+  const a = row.diff?.auto;
+  if (!a) return [];
+  const n = (a.added?.length ?? 0) + (a.removed?.length ?? 0) + (a.changed?.length ?? 0);
+  if (!n) return [];
+  const parts = [
+    a.added?.length ? t("fw_changes.auto_added", { n: a.added.length }) : "",
+    a.removed?.length ? t("fw_changes.auto_removed", { n: a.removed.length }) : "",
+    a.changed?.length ? t("fw_changes.auto_changed", { n: a.changed.length }) : "",
+  ].filter(Boolean).join("、");
+  const out = [{ kind: "sys" as DiffKind, text: t("fw_changes.auto_summary", { parts }) }];
+  if (expanded.value.has(row.id)) {
+    for (const r of (a.added ?? [])) out.push({ kind: "sys", text: `＋ ${ruleLine(r)}` });
+    for (const r of (a.removed ?? [])) out.push({ kind: "sys", text: `－ ${ruleLine(r)}` });
+    for (const c of (a.changed ?? [])) out.push({ kind: "sys", text: `～ ${c.descr || c.key}` });
+  }
+  return out;
+}
+function toggleAuto(id: string) {
+  const next = new Set(expanded.value);
+  if (next.has(id)) next.delete(id); else next.add(id);
+  expanded.value = next;
+}
 
 /** 把一筆快照的 diff 攤成「一列一條規則」。類型與文字分開回傳，兩個欄位才對得齊。 */
 function diffLines(row: Change): { kind: DiffKind; text: string }[] {
@@ -68,7 +97,7 @@ function diffLines(row: Change): { kind: DiffKind; text: string }[] {
     out.push({ kind: "chg", text: `${c.descr || c.key}：${(c.fields ?? []).map(
       (f: string) => `${f} ${c.old?.[f] ?? ""} → ${c.new?.[f] ?? ""}`).join("、")}` });
   }
-  return out;
+  return [...out, ...autoLines(row)];
 }
 
 /** 類型欄的寬度：異動列的「類型＋內容」合成一格時，左邊那一欄也用這個寬，文字才會跟「異動內容」標題對齊 */
@@ -85,10 +114,15 @@ function renderKindAndDiff(row: Change) {
   return h("div", {
     style: `display:grid;grid-template-columns:${KIND_COL_W}px minmax(0,1fr);row-gap:3px;padding:4px 0;align-items:start`,
     "data-testid": "fw-change-lines",
-  }, diffLines(row).flatMap((l) => [
+  }, diffLines(row).flatMap((l, i, all) => [
     h("div", { style: LINE_STYLE },
       h(NTag, { size: "tiny", type: KIND_TAG[l.kind] }, { default: () => t(`fw_changes.d_${l.kind}`) })),
-    h("div", { style: `${LINE_STYLE};overflow-wrap:anywhere` }, l.text),
+    h("div", { style: `${LINE_STYLE};overflow-wrap:anywhere${l.kind === "sys" ? ";opacity:.7" : ""}` },
+      // 系統規則摘要那一行帶「展開／收合」
+      l.kind === "sys" && all.findIndex((x) => x.kind === "sys") === i
+        ? [l.text, " ", h("a", { style: "cursor:pointer", "data-testid": "fw-auto-toggle", onClick: () => toggleAuto(row.id) },
+            expanded.value.has(row.id) ? t("fw_changes.auto_hide") : t("fw_changes.auto_show"))]
+        : l.text),
   ]));
 }
 
@@ -170,7 +204,9 @@ const cols: DataTableColumns<Change> = autoSort([
   // 寬度只留到剛好放下兩顆按鈕（使用者回饋：多餘寬度優先給異動內容），
   // 「檢視結果」長出來或認可說明較長時靠 flex-wrap 換行。
   { title: t("common.actions"), key: "_actions", width: 185, className: "col-actions",
-    render: (r) => r.is_baseline ? null : h("span",
+    render: (r) => r.is_baseline ? null : !hasUserChange(r)
+      ? h("span", { style: "font-size:12px;opacity:.65" }, t("fw_changes.no_ack_needed"))
+      : h("span",
       { style: "display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap" }, [
         r.ack
           ? h("span", { style: "font-size:12px;opacity:.75" },

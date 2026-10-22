@@ -109,8 +109,9 @@ async def triage_ip(session: AsyncSession, user: Any, ip: str) -> dict[str, Any]
     prompt += await answer_language(session, user)
     # 模型走「AI 判讀」設定（沒設＝對話模型）；判讀出自哪個模型是品質的一部分，跟結果一起回
     card, model = await interpret_chat(session, prompt, timeout=120.0,
-                                       max_output_tokens=800, no_thinking=True)
-    return {"ip": ip, "card": card.strip(), "model": model,
+                                       max_output_tokens="auto", no_thinking=True)
+    from app.services.ai import finish_text
+    return {"ip": ip, "card": await finish_text(session, user, card), "model": model,
             "evidence": ev["history"]["events"][:30],
             "macs": ev["macs"], "vendors": ev["vendors"],
             "disclaimer": "此為語言模型依觀測證據所做的推測，請對照證據後再行動。"}

@@ -83,6 +83,7 @@ from app.api.v1.endpoints import (
     vlans,
     vnc_console,
     vrfs,
+    warroom,
     wazuh,
     windows_dhcp,
     zabbix,
@@ -159,6 +160,8 @@ api_v1_router.include_router(ai_audit.router)
 api_v1_router.include_router(investigate.router)
 api_v1_router.include_router(esxi.router)
 api_v1_router.include_router(hyperv.router)
+api_v1_router.include_router(warroom.router)
+api_v1_router.include_router(warroom.admin_router)
 api_v1_router.include_router(import_external.router)
 api_v1_router.include_router(scan_agents.router)
 api_v1_router.include_router(scan_agent_relay.router)

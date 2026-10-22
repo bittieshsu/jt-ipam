@@ -78,6 +78,16 @@ async def push_notification(
 
 
 # ─────────────────── 通知矩陣分派（站內 + Email，依矩陣設定）───────────────────
+#: 舊版在 LDAP 目錄沒有 email 時自動塞的假地址：寄過去只會被退信
+_PLACEHOLDER_DOMAINS = ("@ldap.local",)
+
+
+def deliverable_email(addr: str | None) -> bool:
+    """這個地址寄得出去嗎：空的與舊版自動產生的假地址不寄。"""
+    a = (addr or "").strip().lower()
+    return bool(a) and "@" in a and not a.endswith(_PLACEHOLDER_DOMAINS)
+
+
 async def email_users(
     session: AsyncSession, recipients: list[str | None], subject: str, body_text: str,
     *, link: str | None = None,
@@ -85,7 +95,7 @@ async def email_users(
     """對一組收件者寄信（best-effort；email 管道沒開或單筆失敗都不會中斷流程）。
 
     `link`（站內路徑）會換成完整網址附在信末「前往檢視」。"""
-    tos = [r for r in recipients if r]
+    tos = [r for r in recipients if deliverable_email(r)]
     if not tos:
         return
     if link:

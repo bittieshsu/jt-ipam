@@ -140,10 +140,6 @@ async function submitCreate() {
     msg.error(t("users.error_username_required"));
     return;
   }
-  if (!newUser.value.email.trim()) {
-    msg.error(t("users.error_email_required"));
-    return;
-  }
   if (newUser.value.password.length < 12) {
     msg.error(t("users.error_password_too_short"));
     return;
@@ -420,8 +416,9 @@ onMounted(() => { void refresh(); });
         <n-form-item :label="t('users.username')">
           <n-input v-model:value="newUser.username" />
         </n-form-item>
-        <n-form-item :label="t('users.email')">
-          <n-input v-model:value="newUser.email" />
+        <!-- Email 是選用的（2026-10-22）：只拿來寄通知信，給電視之類的帳號可以不填 -->
+        <n-form-item :label="t('users.email_optional')" :feedback="t('users.email_hint')">
+          <n-input v-model:value="newUser.email" :placeholder="t('users.email_placeholder')" />
         </n-form-item>
         <n-form-item :label="t('users.display_name')">
           <n-input v-model:value="newUser.display_name" />
@@ -511,8 +508,8 @@ onMounted(() => { void refresh(); });
                    :disabled="editing?.auth_provider !== 'local'"
                    :placeholder="editing?.auth_provider !== 'local' ? t('cols.username_external') : ''" />
         </n-form-item>
-        <n-form-item :label="t('users.email')">
-          <n-input v-model:value="editForm.email" />
+        <n-form-item :label="t('users.email_optional')" :feedback="t('users.email_hint')">
+          <n-input v-model:value="editForm.email" :placeholder="t('users.email_placeholder')" />
         </n-form-item>
         <n-form-item :label="t('users.display_name')">
           <n-input v-model:value="editForm.display_name" />

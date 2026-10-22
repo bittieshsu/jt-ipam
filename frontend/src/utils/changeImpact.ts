@@ -68,6 +68,10 @@ export function reasonText(t: T, te: Te, code: string, p: Record<string, unknown
   return te(key) ? t(key, params(t, te, p)) : code;
 }
 export function gapText(t: T, te: Te, code: string, p: Record<string, unknown>): string {
+  // 同一個原因碼依種類有更精確的句子（例：unknown_semantics 的 non_address_members 要帶物件名稱，
+  // 否則兩個不同別名的缺口看起來一模一樣）
+  const variant = p?.kind ? `change_impact.gap.${code}__${String(p.kind)}` : "";
+  if (variant && te(variant)) return t(variant, params(t, te, p));
   const key = `change_impact.gap.${code}`;
   return te(key) ? t(key, params(t, te, p)) : code;
 }

@@ -168,6 +168,9 @@ export interface LLMConfig {
   mcp_api_key_set: boolean;
   /** 對外 MCP 金鑰的到期時間（過期的金鑰會被拒絕） */
   mcp_api_key_expires_at?: string | null;
+  /** 目前這把金鑰最後一次被 MCP 用戶端使用（重產後歸零） */
+  mcp_api_key_last_used_at?: string | null;
+  mcp_api_key_last_used_ip?: string | null;
   ai_audit_enabled: boolean;
   ai_audit_times: string[];
   ai_audit_frequency: string;

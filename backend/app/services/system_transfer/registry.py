@@ -111,6 +111,8 @@ CATEGORY: dict[str, str] = {
     "agent_probe_jobs": "operational",
     # 掃描代理每一輪的耗時（負載面板的趨勢，只保留 7 天）
     "scan_agent_cycles": "operational",
+    # 異常觀測（0224）：每一筆異常出現到消失的期間，戰情室時序用；消失後保留 90 天
+    "anomaly_observations": "operational",
     "cert_agents": "integrations",
     "webhook_subscriptions": "integrations",
     "windows_dhcp_servers": "integrations",

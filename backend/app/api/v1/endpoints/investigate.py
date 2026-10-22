@@ -38,7 +38,7 @@ def _narrative_error(exc: BaseException, user: Any) -> dict[str, Any]:
 router = APIRouter(prefix="/investigate", tags=["investigate"])
 
 NARRATIVE_TIMEOUT = 120.0
-NARRATIVE_MAX_TOKENS = 900
+# 輸出上限依 LLM 設定自動計算（ai.output_budget），不寫死
 
 
 def _prompt(dossier: dict[str, Any], lang: str) -> str:
@@ -134,10 +134,11 @@ async def investigate(
         # 模型走「AI 判讀」設定（沒設＝對話模型）
         text, out["model"] = await interpret_chat(
             session, _prompt(dossier, lang) + await answer_language(session, user),
-            timeout=NARRATIVE_TIMEOUT, max_output_tokens=NARRATIVE_MAX_TOKENS,
+            timeout=NARRATIVE_TIMEOUT, max_output_tokens="auto",
             no_thinking=True,
         )
-        out["narrative"] = text.strip() or None
+        from app.services.ai import finish_text
+        out["narrative"] = await finish_text(session, user, text) or None
     except Exception as exc:
         err = _narrative_error(exc, user)
         out["narrative_error"] = err["detail"]
@@ -213,7 +214,7 @@ async def narrative_stream(
         from app.services.ai import interpret_chat
         task = asyncio.create_task(interpret_chat(
             session, prompt, timeout=NARRATIVE_TIMEOUT,
-            max_output_tokens=NARRATIVE_MAX_TOKENS, no_thinking=True, on_chunk=on_chunk))
+            max_output_tokens="auto", no_thinking=True, on_chunk=on_chunk))
         last_sent = time.monotonic()
         try:
             while not task.done() or queue:
@@ -228,8 +229,9 @@ async def narrative_stream(
                     last_sent = time.monotonic()
                 await asyncio.sleep(0.15)
             text, model = await task
+            from app.services.ai import finish_text
             yield ("data: " + _json.dumps(
-                {"type": "done", "text": (text or "").strip(), "model": model,
+                {"type": "done", "text": await finish_text(session, user, text or ""), "model": model,
                  "elapsed": round(time.monotonic() - started, 1)},
                 ensure_ascii=False) + "\n\n")
         except Exception as exc:

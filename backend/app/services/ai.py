@@ -567,7 +567,79 @@ def _cut_off_while_thinking(thinking_chars: int, max_tokens: Any) -> AIError:
     )
 
 
-def _answer_or_explain(data: dict[str, Any], *, max_tokens: Any) -> str:
+#: 自動輸出上限（output_budget）的上下限與保留。
+#: 防呆上限：上下文再大也不讓單次回覆超過這個數 —— 模型偶爾卡在重複輸出的迴圈（實測寫到 54,000 字還沒停），
+#: 沒有上限會把整個逾時燒完
+OUTPUT_LOOP_GUARD = 32768
+#: 至少留這麼多：提示詞已經把上下文塞滿時照樣送（那是另一個問題，有別的訊息說明）
+OUTPUT_FLOOR = 1024
+#: 估計誤差與聊天樣板的保留
+_OUTPUT_MARGIN = 256
+#: Ollama 沒設 num_ctx 時用的預設上下文
+_OLLAMA_DEFAULT_CTX = 4096
+#: OpenAI 相容端點、管理員也沒填上下文長度：不知道模型能放多少，給一個多數模型都接受的值
+#: （送超過模型上限的 max_tokens 有些端點會直接回 400）
+_UNKNOWN_CTX_OUTPUT = 8192
+
+
+def estimate_tokens(text: str) -> int:
+    """粗估 token 數，寧可高估：英數約 4 字元 1 token，中日韓大致 1 字 1 token。
+    （低估的代價是提示詞被截掉、模型完全不照指示做；AI 巡檢、輸出上限共用這一份。）"""
+    cjk = sum(1 for ch in text if ord(ch) > 0x2E7F)
+    return cjk + (len(text) - cjk) // 4 + 1
+
+
+def output_budget(prompt: str, num_ctx: int | None, provider: str) -> int:
+    """這次呼叫可以產出多少 token：上下文長度 － 提示詞 － 保留，夾在 [OUTPUT_FLOOR, OUTPUT_LOOP_GUARD]。
+
+    2026-10-21 使用者：輸出上限要跟著 LLM 設定自動變，不要寫死（各家的主機與模型都不同）。
+    以前各功能各寫一個數字（800、900、1400、2000、6000），換了大上下文的模型也用不到。"""
+    if not num_ctx:
+        if provider == "openai":
+            return _UNKNOWN_CTX_OUTPUT
+        num_ctx = _OLLAMA_DEFAULT_CTX
+    room = int(num_ctx) - estimate_tokens(prompt) - _OUTPUT_MARGIN
+    return max(OUTPUT_FLOOR, min(OUTPUT_LOOP_GUARD, room))
+
+
+class ChatText(str):
+    """模型的回覆文字，另外帶「是不是被輸出上限切斷」（finish_reason／done_reason＝length）。
+
+    2026-10-21：IP 變更評估的逐項解釋寫到一半被我們自己設的輸出上限切斷，JSON 不完整，
+    只被當成「格式不對」；文字類的判讀被切斷時畫面上也只是話講到一半。標出來，呼叫端才能
+    要求模型精簡重寫，或在文字後面註明被截斷。"""
+
+    truncated: bool
+
+    def __new__(cls, value: str = "", truncated: bool = False) -> ChatText:
+        obj = super().__new__(cls, value)
+        obj.truncated = bool(truncated)
+        return obj
+
+
+_TRUNCATED_NOTE = {
+    "zh": "（回答達到輸出長度上限，後面被截斷）",
+    "en": "(The answer reached the output length limit and was cut off here.)",
+    "ja": "（回答が出力の長さの上限に達したため、ここで途切れています）",
+}
+
+
+async def finish_text(session: AsyncSession, user: Any, text: str) -> str:
+    """文字類判讀的收尾：去掉前後空白；被輸出上限切斷就在最後註明（依這個人的介面語言）。"""
+    if not getattr(text, "truncated", False):
+        return str(text or "").strip()
+    return with_truncation_note(text, await user_locale(session, user)).strip()
+
+
+def with_truncation_note(text: str, locale: str | None) -> str:
+    """被輸出上限切斷的文字類回覆，在最後註明（不讓半句話看起來像寫完了）。"""
+    if not getattr(text, "truncated", False):
+        return str(text)
+    key = "en" if (locale or "").startswith("en") else "ja" if (locale or "").startswith("ja") else "zh"
+    return f"{str(text).rstrip()}\n\n{_TRUNCATED_NOTE[key]}"
+
+
+def _answer_or_explain(data: dict[str, Any], *, max_tokens: Any) -> ChatText:
     """非串流回覆取出答案；答案是空的而且是被額度切在思考裡，就丟出說明清楚的錯誤。"""
     msg = data.get("message") or {}
     finish = data.get("done_reason")
@@ -580,7 +652,7 @@ def _answer_or_explain(data: dict[str, Any], *, max_tokens: Any) -> str:
         thinking = str(msg.get("reasoning_content") or msg.get("reasoning")
                        or msg.get("thinking") or "")
         raise _cut_off_while_thinking(len(thinking), max_tokens)
-    return content
+    return ChatText(content, truncated=finish == "length")
 
 
 def embedding_body(cfg: Any, provider: str, text_in: str) -> dict[str, Any]:
@@ -1705,7 +1777,7 @@ async def index_status(session: AsyncSession) -> dict[str, Any]:
 
 async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = None,
                    model: str | None = None, force_json: bool = False,
-                   max_output_tokens: int | None = None, no_thinking: bool = False,
+                   max_output_tokens: int | str | None = None, no_thinking: bool = False,
                    num_ctx: int | None = None,
                    on_chunk: Callable[[str, str], Awaitable[None]] | None = None) -> str:
     """單次、不帶工具的對話 —— 給 AI 巡檢這類「送一段提示詞、要一段結構化輸出」的用途。
@@ -1719,7 +1791,8 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
     `force_json=True` 會要求 Ollama 只輸出 JSON —— 光靠提示詞說「只回 JSON」不夠，
     模型（尤其提示詞很長時）常常改寫一段散文回來。
     `max_output_tokens` 限制產出長度。沒有上限的話，模型有機會卡在重複輸出的迴圈裡，
-    把整個逾時燒完才失敗（實測看過一批產出 34,000 字還沒停）。
+    把整個逾時燒完才失敗（實測看過一批產出 34,000 字還沒停）。傳 `"auto"`＝依實際使用的
+    上下文長度自動計算（output_budget；功能程式一律用這個，有守門測試）。
     `no_thinking=True` 關掉思考模式。**思考過程也算在產出額度裡** —— 實測 gemma4 一批
     寫了 10,401 字的思考，結果真正的答案被額度切斷。舊版 Ollama 不認這個欄位，
     被拒絕時會自動退回不帶它重送。
@@ -1732,9 +1805,11 @@ async def raw_chat(session: AsyncSession, prompt: str, timeout: float | None = N
     if not cfg.enabled:
         raise AINotConfigured("LLM is disabled")
     url = chat_url(cfg.url, cfg.provider)
+    limit = (output_budget(prompt, num_ctx or getattr(cfg, "num_ctx", None), cfg.provider)
+             if max_output_tokens == "auto" else (int(max_output_tokens) if max_output_tokens else None))
     body = json_chat_body(
         cfg, cfg.provider, prompt=prompt, stream=on_chunk is not None,
-        force_json=force_json, max_output_tokens=max_output_tokens, num_ctx=num_ctx,
+        force_json=force_json, max_output_tokens=limit, num_ctx=num_ctx,
         no_thinking=no_thinking, model=model,
     )
     wait = timeout or cfg.timeout
@@ -1929,4 +2004,4 @@ async def _stream_once(
     if not out.strip() and done_reason == "length":
         raise _cut_off_while_thinking(
             thinking_chars, body.get("max_tokens") or (body.get("options") or {}).get("num_predict"))
-    return out
+    return ChatText(out, truncated=done_reason == "length")
