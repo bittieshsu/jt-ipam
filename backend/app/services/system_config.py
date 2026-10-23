@@ -1715,6 +1715,7 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
     ("credential.expiring", True, False),
     ("cert.deployed", True, False),        # 代理成功部署新憑證
     ("cert.drift", True, False),           # 憑證飄移（某代理未套到最新版）
+    ("cert.push_failed", True, False),     # 憑證推送到防火牆失敗或確認不到而換回（0227）
     *((ev, ev not in INFO_ANOMALY_EVENTS, False) for ev in ANOMALY_EVENTS),   # 異常偵測（逐類別）
     ("firewall.rules_changed", True, False),  # 防火牆規則有異動
     # 「東西壞了卻沒人知道」三類。只在開始與恢復時發（見 services/state_alert）。

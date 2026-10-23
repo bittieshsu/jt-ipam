@@ -175,7 +175,8 @@ async def rules_touching_ip(session: AsyncSession, ip: str, *, ip_id: Any = None
 
     # ── OPNsense 規則 ──
     for r in (await session.execute(
-            select(OPNsenseRule).where(OPNsenseRule.enabled.is_(True)))).scalars().all():
+            select(OPNsenseRule).where(OPNsenseRule.enabled.is_(True))
+            .order_by(OPNsenseRule.firewall_id, OPNsenseRule.sequence))).scalars().all():
         why_src = _field_matches(r.source_net, aip, alias_names)
         why_dst = _field_matches(r.destination_net, aip, alias_names)
         if why_src or why_dst:
@@ -484,14 +485,18 @@ async def attack_surface(session: AsyncSession, *, limit: int | None = 500,
                 "via": "rule", "source": "pfsense", "firewall": fw.name,
                 "name": (r.get("descr") or str(r.get("tracker") or ""))[:120],
                 "protocol": r.get("protocol"), "port": str(r.get("destination_port") or ""),
-                "descr": (r.get("descr") or "")[:120],
+                "descr": (r.get("descr") or "")[:120], "src": _src_text(r.get("source")),
                 "identity": await identity(target),
+                "_dup": ("pfsense", fw.name, str(r.get("interface") or ""), str(r.get("ipprotocol") or ""),
+                         str(r.get("protocol") or "").lower(), _src_text(r.get("source")),
+                         str(r.get("source_port") or ""), target, str(r.get("destination_port") or "")),
             })
 
     opn_names = {f.id: f.name for f in (await session.execute(
         select(OPNsenseFirewall))).scalars().all()}
     for r in (await session.execute(
-            select(OPNsenseRule).where(OPNsenseRule.enabled.is_(True)))).scalars().all():
+            select(OPNsenseRule).where(OPNsenseRule.enabled.is_(True))
+            .order_by(OPNsenseRule.firewall_id, OPNsenseRule.sequence))).scalars().all():
         if "wan" not in str(r.interface or "").lower():
             continue
         if str(r.action or "").lower() not in ("pass", "accept"):
@@ -504,14 +509,53 @@ async def attack_surface(session: AsyncSession, *, limit: int | None = 500,
             "firewall": opn_names.get(r.firewall_id, "?"),
             "name": (r.description or "")[:120],
             "protocol": r.protocol, "port": str(getattr(r, "destination_port", "") or ""),
-            "descr": (r.description or "")[:120],
+            "descr": (r.description or "")[:120], "src": r.source_net, "sequence": r.sequence,
             "identity": await identity(target),
+            "_dup": ("opnsense", r.firewall_id, str(r.interface or ""), str(r.direction or ""),
+                     str((r.raw or {}).get("ipprotocol") or ""), str(r.protocol or "").lower(),
+                     str(r.source_net or ""), str(r.source_port or ""), target, str(r.destination_port or "")),
         })
 
+    items = _merge_duplicate_rules(items)
     if limit is not None:
         items = items[:limit]
     await _attach_fqdns(session, items)
     return items
+
+
+def _src_text(v: Any) -> str:
+    """pfSense 規則的來源（字串或 {address/network/any}）→ 比對用的文字。"""
+    if isinstance(v, dict):
+        return "|".join(f"{k}={v[k]}" for k in sorted(v))
+    return str(v or "")
+
+
+def _merge_duplicate_rules(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """同一台防火牆上完全相同的放行規則（介面、方向、協定、來源、目的、埠都一樣）合併成一列。
+
+    使用者 10-22：「某台主機的 443 怎麼有兩筆一樣的？」—— 防火牆上真的有兩條一模一樣的規則，
+    比對到第一條就放行，後面那條永遠用不到。清單是「哪裡對外開了」，同一個開口只列一次，
+    但把重複標出來（`duplicates`＝各條的序號，小的在前＝生效的那條），因為那是要回防火牆清掉的設定。
+    說明文字不同也算重複（開口一樣）；來源不同就是不同的開口，不合併。
+    """
+    out: list[dict[str, Any]] = []
+    first: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for it in items:
+        key = it.pop("_dup", None)
+        if key is None:
+            out.append(it)
+            continue
+        keep = first.get(key)
+        if keep is None:
+            first[key] = it
+            out.append(it)
+            continue
+        seqs = keep.setdefault("duplicates", [keep.get("sequence")])
+        seqs.append(it.get("sequence"))
+    for it in out:
+        if "duplicates" in it:
+            it["duplicates"] = sorted(s for s in it["duplicates"] if s is not None) or [None] * len(it["duplicates"])
+    return out
 
 
 async def _attach_fqdns(session: AsyncSession, items: list[dict[str, Any]]) -> None:
@@ -646,5 +690,7 @@ async def vm_match_for(session: AsyncSession, *, ip: str | None = None,
             "kind": vm.kind,
             # 調查用：在哪個節點、現在的狀態、哪張網卡對到的（PVE 的 VMID）
             "node": vm.node, "status": vm.status, "vmid": vm.legacy_vmid,
+            # 虛擬化平台回報的客體作業系統（Hyper-V KVP、VMware Tools 等；沒有就是 None）
+            "os": vm.os_name,
             "interface": row[0].name,
             "matched_by": "mac" if row[0].mac and str(row[0].mac).lower() in want else "ip"}

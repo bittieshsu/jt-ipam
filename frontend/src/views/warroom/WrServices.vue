@@ -12,6 +12,8 @@ import { pad2 } from "@/utils/warroom";
 import WrMatrix from "./WrMatrix.vue";
 import WrName from "./WrName.vue";
 import { usePageTransition } from "./paged";
+import WrIco from "./WrIco.vue";
+import { SECTION_ICONS } from "./wrIcons";
 
 const props = defineProps<{ data: PageData }>();
 const pageTrans = usePageTransition();     // 換資料頁只換分頁的那一區（paged.ts）
@@ -36,7 +38,7 @@ const BUCKETS = [
 /** 來源越多格子越小（版面寬度固定，不縮字） */
 const srcSize = computed(() => {
   const n = dns.value.group?.sources.length ?? 1;
-  return n <= 2 ? 24 : n === 3 ? 18 : 14;
+  return n <= 2 ? 20 : n === 3 ? 16 : 12;
 });
 function certTone(days: number): string {
   return days <= 7 ? "coral" : days <= 14 ? "lilac" : "ink";
@@ -64,7 +66,7 @@ function bucketCells(n: number): string[] {
     <!-- DNS 比對群組 -->
     <Transition :name="pageTrans" mode="out-in"><section :key="data.page" class="svc-q svc-dns" data-testid="wr-svc-dns">
       <header class="svc-h">
-        <div class="wr-h2">{{ t("warroom.dns_group") }}</div>
+        <div class="wr-h2"><WrIco :icon="SECTION_ICONS.dns" />{{ t("warroom.dns_group") }}</div>
         <div class="svc-legend">
           <span v-for="k in SRC_STATES" :key="k"><span class="wr-swatch wr-swatch--sm" :class="`s-${k}`" />{{ t(`warroom.dnsrc_${k}`) }}</span>
         </div>
@@ -81,12 +83,13 @@ function bucketCells(n: number): string[] {
           <div v-for="s in dns.group.sources" :key="s.id" class="svc-src" data-testid="wr-dns-source">
             <WrName :text="s.name" class="svc-src__n" />
             <WrMatrix :cells="s.cells" :cols="12" :size="srcSize" :gap="4" />
+            <!-- 「每格約 N 筆」跟數量放同一行：另起一行曾超出下方格線（10-22） -->
             <div class="svc-src__c">
               <span v-for="k in SRC_STATES" v-show="s.counts[k]" :key="k">
                 <span class="wr-swatch wr-swatch--sm" :class="`s-${k}`" />{{ s.counts[k].toLocaleString() }}
               </span>
+              <span v-if="s.unit > 1" class="wr-unit svc-src__u">{{ t("warroom.unit_records", { n: s.unit }) }}</span>
             </div>
-            <div v-if="s.unit > 1" class="wr-unit">{{ t("warroom.unit_records", { n: s.unit }) }}</div>
           </div>
         </div>
         <div v-if="dns.group.more_sources" class="wr-unit">{{ t("warroom.more_sources", { n: dns.group.more_sources }) }}</div>
@@ -97,7 +100,7 @@ function bucketCells(n: number): string[] {
     <!-- DHCP 集區 -->
     <Transition :name="pageTrans" mode="out-in"><section :key="data.page" class="svc-q svc-pool" data-testid="wr-svc-pool">
       <header class="svc-h">
-        <div class="wr-h2">{{ t("warroom.dhcp_pool") }}</div>
+        <div class="wr-h2"><WrIco :icon="SECTION_ICONS.dhcp" />{{ t("warroom.dhcp_pool") }}</div>
         <span class="wr-index">{{ idx(pool) }}</span>
       </header>
       <div v-if="!pool.item" class="wr-muted">{{ t("warroom.no_pools") }}</div>
@@ -127,7 +130,7 @@ function bucketCells(n: number): string[] {
     <!-- 最急的憑證 -->
     <Transition :name="pageTrans" mode="out-in"><section :key="data.page" class="svc-q svc-cert" data-testid="wr-svc-cert">
       <header class="svc-h">
-        <div class="wr-h2">{{ t("warroom.certificate") }}</div>
+        <div class="wr-h2"><WrIco :icon="SECTION_ICONS.cert" />{{ t("warroom.certificate") }}</div>
         <span class="wr-index">{{ idx(certs) }}</span>
       </header>
       <div v-if="certs.state === 'forbidden'" class="wr-muted">{{ t("warroom.forbidden") }}</div>
@@ -147,7 +150,7 @@ function bucketCells(n: number): string[] {
 
     <!-- 到期區間 -->
     <section class="svc-q svc-buckets" data-testid="wr-svc-buckets">
-      <header class="svc-h"><div class="wr-h2">{{ t("warroom.cert_expiry") }}</div></header>
+      <header class="svc-h"><div class="wr-h2"><WrIco :icon="SECTION_ICONS.certExpiry" />{{ t("warroom.cert_expiry") }}</div></header>
       <div v-if="certs.state === 'forbidden'" class="wr-muted">{{ t("warroom.forbidden") }}</div>
       <div v-else-if="!certs.buckets" class="wr-muted">{{ t("warroom.no_certs") }}</div>
       <div v-else class="svc-bk">
@@ -168,9 +171,10 @@ function bucketCells(n: number): string[] {
 </template>
 
 <style scoped>
-.svc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1.35fr 1fr; height: 100%; }
+/* 列高固定為可用高度（minmax(0, …)）：某一區內容多時曾把整列撐高，另一區的下半部被推出畫面（10-22） */
+.svc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr); height: 100%; }
 .svc-q { padding: 10px 40px 14px 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0;
-  border-bottom: 1px solid var(--wr-line); }
+  border-bottom: 1px solid var(--wr-line); overflow: hidden; }
 .svc-q:nth-child(2n) { padding-left: 40px; padding-right: 0; border-left: 1px solid var(--wr-line); }
 .svc-q:nth-child(n+3) { border-bottom: 0; padding-top: 16px; }
 .svc-h { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
@@ -186,6 +190,7 @@ function bucketCells(n: number): string[] {
 .svc-src__n { font-size: 20px; color: var(--wr-muted); font-family: var(--wr-num); }
 .svc-src__c { display: flex; gap: 16px; flex-wrap: wrap; font-family: var(--wr-num); font-size: 22px; }
 .svc-src__c > span { display: inline-flex; align-items: center; gap: 6px; }
+.svc-src__u { margin-left: auto; white-space: nowrap; }
 .svc-pool__id { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; }
 .svc-pool__r { font-family: var(--wr-num); font-size: 22px; color: var(--wr-muted); white-space: nowrap; }
 .svc-pool__pct { display: flex; align-items: baseline; gap: 22px; }

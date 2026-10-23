@@ -10,13 +10,17 @@ import { anomalyCategoryLabel } from "./categories";
 import WrMatrix from "./WrMatrix.vue";
 import WrName from "./WrName.vue";
 import { usePageTransition } from "./paged";
+import type { IpHints } from "./hints";
+import WrHints from "./WrHints.vue";
+import WrIco from "./WrIco.vue";
+import { SECTION_ICONS, categoryIcon } from "./wrIcons";
 
 const props = defineProps<{ data: PageData }>();
 const pageTrans = usePageTransition();     // 換資料頁只換分頁的那一區（paged.ts）
 const { t, te } = useI18n();
 
 interface Group { id: string | null; name: string | null; counts: Record<string, number>; subnets: number; unit: number; cells: string[] }
-interface Prio { kind: string; category?: string; value: string; days?: number; severity: string; at: string | null }
+interface Prio { kind: string; category?: string; value: string; days?: number; severity: string; at: string | null; hints?: IpHints }
 
 const groups = computed(() => (props.data.groups as Group[]) ?? []);
 const prio = computed(() => (props.data.priority as { state: string; items?: Prio[]; total?: number }) ?? { state: "empty" });
@@ -30,6 +34,11 @@ function prioTitle(p: Prio): string {
   if (p.kind === "cert") return t("warroom.prio_cert");
   if (p.kind === "dns") return t("warroom.prio_dns");
   return anomalyCategoryLabel(p.category ?? "", t, te);
+}
+function prioIcon(p: Prio) {
+  if (p.kind === "cert") return SECTION_ICONS.cert;
+  if (p.kind === "dns") return SECTION_ICONS.dns;
+  return categoryIcon(p.category ?? "");
 }
 function relTime(iso: string | null): string {
   if (!iso) return "";
@@ -66,12 +75,12 @@ function relTime(iso: string | null): string {
     </Transition>
 
     <aside class="ov-side">
-      <div class="wr-h2">{{ t("warroom.priority") }}<span v-if="prio.total" class="wr-h2__n">{{ prio.total }}</span></div>
+      <div class="wr-h2"><WrIco :icon="SECTION_ICONS.priority" />{{ t("warroom.priority") }}<span v-if="prio.total" class="wr-h2__n">{{ prio.total }}</span></div>
       <div v-if="prio.state === 'forbidden'" class="wr-muted">{{ t("warroom.forbidden") }}</div>
       <div v-else-if="!prio.items?.length" class="wr-muted">{{ t("warroom.no_priority") }}</div>
       <div v-for="(p, i) in prio.items ?? []" :key="i" class="ov-prio" :class="`sev-${p.severity}`" data-testid="wr-prio">
         <div class="ov-prio__top">
-          <span class="ov-prio__t">{{ prioTitle(p) }}</span>
+          <span class="ov-prio__t"><WrIco :icon="prioIcon(p)" />{{ prioTitle(p) }}</span>
           <span class="ov-prio__s">{{ t(`warroom.sev_${p.severity}`) }}</span>
         </div>
         <div class="ov-prio__v">
@@ -81,7 +90,10 @@ function relTime(iso: string | null): string {
               {{ p.days != null && p.days < 0 ? t("warroom.cert_expired") : t("warroom.days_left", { n: p.days }) }}
             </div>
           </template>
-          <WrName v-else :text="p.value" />
+          <template v-else>
+            <WrName :text="p.value" />
+            <WrHints :hints="p.hints" />
+          </template>
         </div>
         <div class="ov-prio__at">{{ relTime(p.at) }}</div>
       </div>
@@ -90,20 +102,22 @@ function relTime(iso: string | null): string {
 </template>
 
 <style scoped>
-.ov { display: grid; grid-template-columns: 1fr 520px; gap: 48px; height: 100%; }
+/* 列高固定為可用高度：右側優先事項很多時曾把整列撐高，左邊第三個地點被推出畫面（10-22） */
+.ov { display: grid; grid-template-columns: 1fr 520px; grid-template-rows: minmax(0, 1fr); gap: 48px; height: 100%; }
 .ov-groups { display: flex; flex-direction: column; min-height: 0; }
 .ov-group { display: grid; grid-template-columns: 400px 496px 1fr; gap: 40px; align-items: center;
-  padding: 18px 0; border-bottom: 1px solid var(--wr-line); flex: 1; min-height: 0; }
+  padding: 12px 0; border-bottom: 1px solid var(--wr-line); flex: 1; min-height: 0; }
 .ov-group:last-child { border-bottom: 0; }
 .ov-name__t { font-size: 38px; font-weight: 700; color: var(--wr-ink); }
 .ov-name__m { margin-top: 10px; font-size: 22px; color: var(--wr-muted); font-family: var(--wr-num); }
 .ov-matrix { display: flex; flex-direction: column; gap: 10px; }
 .ov-counts { display: grid; grid-template-rows: repeat(5, auto); gap: 2px; justify-self: start; }
-.ov-count { display: grid; grid-template-columns: 20px 84px auto; align-items: center; gap: 12px; font-size: 21px; line-height: 1.45; }
+.ov-count { display: grid; grid-template-columns: 20px 84px auto; align-items: center; gap: 12px; font-size: 21px; line-height: 1.3; }
 .ov-count.zero { opacity: .45; }
 .ov-count__n { font-family: var(--wr-num); font-size: 26px; text-align: right; font-variant-numeric: tabular-nums; }
 .ov-count__l { color: var(--wr-muted); }
-.ov-side { border-left: 1px solid var(--wr-line); padding-left: 40px; display: flex; flex-direction: column; gap: 18px; }
+.ov-side { border-left: 1px solid var(--wr-line); padding-left: 40px; display: flex; flex-direction: column; gap: 18px;
+  min-height: 0; overflow: hidden; }
 /* 嚴重度看標題顏色（珊瑚橘／淡紫），不另加左側色條（使用者 10-21：色塊旁加色條看起來很 low） */
 .ov-prio { background: var(--wr-panel); padding: 18px 22px; display: grid; gap: 6px; }
 .ov-prio__top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }

@@ -109,7 +109,7 @@ async function submit() {
         sync_clients: form.value.sync_clients,
         sync_rewrites: form.value.sync_rewrites,
         sync_interval_seconds: form.value.sync_interval_seconds,
-        description: form.value.description || undefined,
+        description: form.value.description ?? "",
         scope_subnet_ids: form.value.scope_subnet_ids,
       };
       if (form.value.api_password) payload.api_password = form.value.api_password;
@@ -125,7 +125,7 @@ async function submit() {
         sync_clients: form.value.sync_clients,
         sync_rewrites: form.value.sync_rewrites,
         sync_interval_seconds: form.value.sync_interval_seconds,
-        description: form.value.description || undefined,
+        description: form.value.description ?? "",
         scope_subnet_ids: form.value.scope_subnet_ids,
       });
     }

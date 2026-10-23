@@ -73,6 +73,8 @@ class ScanAgentCreate(StrictModel):
 
 
 class ScanAgentUpdate(StrictModel):
+    #: 可以改名（10-22）：名稱只是顯示用，代理靠金鑰辨識；名稱仍不可重複
+    name: Annotated[str | None, Field(min_length=1, max_length=128)] = None
     description: Annotated[str | None, Field(max_length=1024)] = None
     enabled: bool | None = None
     auto_create_ips: bool | None = None
@@ -350,7 +352,7 @@ async def update_agent(
     if obj is None:
         raise HTTPException(404, detail="Agent not found")
 
-    before = {"enabled": obj.enabled, "auto_create_ips": obj.auto_create_ips,
+    before = {"name": obj.name, "enabled": obj.enabled, "auto_create_ips": obj.auto_create_ips,
               "relay_allowed": obj.relay_allowed, "relay_max_sessions": obj.relay_max_sessions,
               "relay_ports": obj.relay_ports}
     if payload.relay_ports is not None:
@@ -365,6 +367,13 @@ async def update_agent(
         obj.relay_allowed = payload.relay_allowed
     if payload.relay_max_sessions is not None:
         obj.relay_max_sessions = payload.relay_max_sessions
+    if payload.name is not None and payload.name.strip() and payload.name.strip() != obj.name:
+        new_name = payload.name.strip()
+        if (await session.execute(select(ScanAgent.id).where(ScanAgent.name == new_name,
+                                                             ScanAgent.id != obj.id))).first():
+            raise HTTPException(409, detail=ui_detail("scan_agent_name_taken", "this name is already used",
+                                                      name=new_name[:60]))
+        obj.name = new_name
     if payload.description is not None:
         obj.description = payload.description
     if payload.enabled is not None:
@@ -391,8 +400,17 @@ async def update_agent(
     return await _with_relay_active(_to_read(obj))
 
 
+class AgentSubnetItem(StrictModel):
+    id: uuid.UUID
+    cidr: str
+    description: str | None = None
+    scan_enabled: bool = False
+
+
 class AgentSubnetsOut(StrictModel):
     subnet_ids: list[uuid.UUID]
+    #: 給代理頁點子網路數字時彈出的清單（10-22）；PUT 回應不帶
+    subnets: list[AgentSubnetItem] | None = None
 
 
 class AgentSubnetsPatch(StrictModel):
@@ -405,13 +423,16 @@ async def get_agent_subnets(
     agent_id: uuid.UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> AgentSubnetsOut:
-    """此 agent 目前負責掃描的子網路 id。"""
+    """此 agent 目前負責掃描的子網路（id，以及 CIDR／說明／是否啟用掃描，依 CIDR 排序）。"""
     if await session.get(ScanAgent, agent_id) is None:
         raise HTTPException(404, detail="Agent not found")
-    ids = (await session.execute(
-        select(Subnet.id).where(Subnet.scan_agent_id == agent_id)
-    )).scalars().all()
-    return AgentSubnetsOut(subnet_ids=list(ids))
+    rows = (await session.execute(
+        select(Subnet.id, Subnet.cidr, Subnet.description, Subnet.scan_enabled)
+        .where(Subnet.scan_agent_id == agent_id).order_by(Subnet.cidr)
+    )).all()
+    return AgentSubnetsOut(subnet_ids=[r.id for r in rows], subnets=[
+        AgentSubnetItem(id=r.id, cidr=str(r.cidr), description=r.description, scan_enabled=bool(r.scan_enabled))
+        for r in rows])
 
 
 @router.put("/{agent_id}/subnets", response_model=AgentSubnetsOut,

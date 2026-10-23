@@ -94,7 +94,7 @@ async function submit() {
   const payload: KeaDhcpWrite = {
     name: f.name, api_url: f.api_url.trim(), verify_tls: f.verify_tls, username: f.username.trim() || null,
     enabled: f.enabled, sync_scopes: f.sync_scopes, sync_leases: f.sync_leases,
-    sync_interval_seconds: f.sync_interval_seconds, description: f.description || undefined,
+    sync_interval_seconds: f.sync_interval_seconds, description: f.description ?? "",
     scope_subnet_ids: f.scope_subnet_ids,
   };
   if (f.password) payload.password = f.password;

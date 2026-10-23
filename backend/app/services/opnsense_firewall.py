@@ -1204,12 +1204,28 @@ async def sync_filter_rules(
     rows: list[dict[str, Any]] = []
     if isinstance(data, dict):
         rows = data.get("rows") or []
-        # /filter/get 那個型態是巢狀 {filter: {rules: {...}}}，盡量解
+        # /filter/get 那個型態是巢狀 {filter: {rules: {rule: {<uuid>: {...}}}}}（多一層 rule），盡量解
         if not rows and isinstance(data.get("filter"), dict):
             rule_obj = data["filter"].get("rules") or {}
+            if isinstance(rule_obj, dict) and isinstance(rule_obj.get("rule"), dict):
+                rule_obj = rule_obj["rule"]
             if isinstance(rule_obj, dict):
                 rows = [{"uuid": uid, **v} for uid, v in rule_obj.items()
                         if isinstance(v, dict)]
+
+    # 升級中的防火牆會回不完整或形狀不對的資料（使用者 10-22：一台 OPNsense 升級時 20 條規則被當成刪除、
+    # 多出一條 uuid="rule" 的空白規則，九分鐘後又全部加回來）。有任何一列 uuid 不像 UUID、
+    # 或從有規則變成零條，就當作這一輪沒讀完整：不新增、不刪除，只回報錯誤。
+    bad = [r for r in rows if not isinstance(r, dict) or not _UUID_RE.match(str(r.get("uuid") or "").strip())]
+    if bad:
+        return {"seen": len(rows), "inserted": 0, "updated": 0, "removed": 0,
+                "error": f"規則清單格式不符（{len(bad)} 列沒有有效的 uuid），可能正在升級，這一輪不更新規則"}  # type: ignore[dict-item]
+    if not rows:
+        had = (await session.execute(
+            select(OPNsenseRule.id).where(OPNsenseRule.firewall_id == fw.id).limit(1))).first()
+        if had is not None:
+            return {"seen": 0, "inserted": 0, "updated": 0, "removed": 0,
+                    "error": "防火牆回傳零條規則，可能正在升級或重新載入，這一輪不刪除規則"}  # type: ignore[dict-item]
 
     now = dt.now(UTC)
     seen_uuids: set[str] = set()
@@ -1296,6 +1312,11 @@ async def sync_filter_rules(
             removed += 1
 
     return {"seen": len(rows), "inserted": inserted, "updated": updated, "removed": removed}
+
+
+#: 規則識別碼：一般規則是標準 UUID；系統自動規則（is_automatic）是 32 位十六進位、沒有連字號
+#: （10-23 正式站台：只認 UUID 的話這些合法的列會被當成格式錯誤，整批規則同步每輪失敗）
+_UUID_RE = re.compile(r"^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$")
 
 
 def _int_or_none(v: Any) -> int | None:

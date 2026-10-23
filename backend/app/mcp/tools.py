@@ -3225,7 +3225,8 @@ async def list_vms(
     session: AsyncSession, *, user: User, limit: int = 200,
     subnet_cidr: str | None = None, subnet_id: str | None = None,
 ) -> dict[str, Any]:
-    """虛擬機清單（Proxmox VE、VMware、Hyper-V 同步回來）：VMID、叢集、節點、規格、作業系統、主要 IP、對應裝置、租戶、說明、網卡。
+    """虛擬機清單（Proxmox VE、VMware、Hyper-V、CubeCOS／OpenStack 同步回來）：VMID、叢集、平台、節點、規格、作業系統、
+    主要 IP、對應裝置、租戶、說明（OpenStack 寫的是 project）、網卡。
     問某網段有哪些 VM 要帶 subnet_cidr。"""
     from app.models.advanced import Tenant
     from app.models.virt import VirtCluster, VirtualMachine, VMInterface
@@ -3248,13 +3249,17 @@ async def list_vms(
         select(IPAddress.id, IPAddress.ip).where(in_values(IPAddress.id, ip_ids)))).all()} if ip_ids else {}
     devs = await _names_for_ids(session, Device, {v.device_id for v in rows})
     clusters = await _names_for_ids(session, VirtCluster, {v.cluster_id for v in rows})
+    # 平台（proxmox／vmware／hyper-v／openstack）：「這台是哪個平台的 VM」不必從叢集名稱猜
+    platforms = await _names_for_ids(session, VirtCluster, {v.cluster_id for v in rows}, attr="type")
     tenants = await _names_for_ids(session, Tenant, {v.tenant_id for v in rows})
     vlans = await _names_for_ids(session, VLAN, {i.vlan_id for lst in ifaces.values() for i in lst}, attr="number")
     out = [{
         "id": str(v.id), "name": v.name,
         # Proxmox 的 VMID（畫面上的「VMID」欄）
         "vmid": v.legacy_vmid, "external_id": v.external_id,
-        "cluster": clusters.get(v.cluster_id), "node": v.node, "kind": v.kind, "status": v.status,
+        "cluster": clusters.get(v.cluster_id), "platform": platforms.get(v.cluster_id),
+        # 節點：OpenStack 沒有權限看主機欄位時是 null（不知道，不是沒有）
+        "node": v.node, "kind": v.kind, "status": v.status,
         "vcpus": v.vcpus, "memory_mb": v.memory_mb, "disk_gb": v.disk_gb,
         # 客體作業系統（Hyper-V 的 KVP、SCVMM；0222）
         "os": v.os_name,
@@ -5193,7 +5198,8 @@ TOOLS: dict[str, dict[str, Any]] = {
     "list_vms": {
         "fn": list_vms,
         "description": (
-            "Virtual machines (Proxmox VE, VMware, Hyper-V): VMID, cluster, node, kind, status, resources, guest OS, primary IP, "
+            "Virtual machines (Proxmox VE, VMware, Hyper-V, CubeCOS/OpenStack): VMID, cluster, platform, node, kind, status, "
+            "resources, guest OS, primary IP, description (OpenStack: project), "
             "linked device, NICs (MAC, IP, bridge, VLAN)."),
         "parameters": {"type": "object", "properties": {"subnet_cidr": {"type": "string"}, "subnet_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}},
     },

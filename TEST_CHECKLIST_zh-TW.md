@@ -95,6 +95,11 @@ AI 巡檢的發現每跑一次就回來一次、得一再忽略，因為識別�
 - [ ] **Email 選用**（`tests/test_user_email_optional.py`）：新增本機帳號不填 Email 可以存（正式版畫面看得到 Email 欄位與提示）；
   亂填（沒有 @）回「Email 格式不正確」；編輯時清空可以存；不含 @ 的登入名稱不會比中空的 email；
   目錄沒有 email 的 LDAP 帳號第一次登入後 email 是空的（不是 帳號@ldap.local）；通知信不寄給空白或 @ldap.local
+- [ ] **Proxmox VE 連線名稱**（`tests/test_proxmox_name.py`）：新增時取名、留空帶入主機名稱；編輯可改名；戰情室採集頁的整合來源顯示名稱而不是兩個「Proxmox VE」
+- [ ] **掃描代理改名、說明可清空**（`e2e/scan-agent-subnet-list.spec.ts`、`src/__tests__/clearableDescription.test.ts`）：改名後清單更新、撞名提示；任一整合或設定頁把說明刪光儲存，重新打開是空的
+- [ ] **戰情室判斷線索與圖示**（`tests/test_warroom_hints.py`）：未授權 IP 卡片下方有 VM／DNS 名稱／廠牌或隨機 MAC／MAC；區塊標題與異常類別有圖示；整合來源是一個個標籤
+- [ ] **掃描代理的子網路清單**（`e2e/scan-agent-subnet-list.spec.ts`、`tests/test_scan_agent_subnet_list.py`）：掃描代理頁點「子網路」數字，彈出的清單筆數等於數字、依 CIDR 排序，點 CIDR 到該子網路頁
+- [ ] **憑證推送到設備**（`tests/test_cert_push_*.py`、`e2e/cert-push.spec.ts`）：每一家各用一台真機（或試用版）建推送目標：FortiGate 先只匯入（不換上）再換上管理介面、OPNsense 先替換一張測試用的憑證（不重啟網頁）再換網頁管理介面那張、Palo Alto 換一個測試用的 SSL/TLS 設定檔、pfSense 換網頁管理介面；每次確認畫面狀態「已推送並確認」、設備上確實換了；把確認位址改成錯的（指向別台）要看到「確認失敗，已換回」且設備恢復原狀；帳密不會出現在畫面或 API 回應；稽核有 cert_push_requested 與 cert_push（不含私鑰）；開自動推送後上傳新版，下一輪同步自動推
 - [ ] **PVE xterm 字級**（`composables/__tests__/useTerminalFontSize.test.ts`）：開 PVE 容器的 xterm 主控台，連上後有 A−／A+，按了字變大變小、行列跟著重算；在 SSH 調過的字級，PVE xterm 打開時沿用
 - [ ] **SSH 的 tmux／screen 提示**（`e2e/ssh-tmux-hint.spec.ts`、`utils/__tests__/sshHints.test.ts`）：連 Linux 主機的 SSH 表單與連線後顯示提示；Windows、網路設備、看不出 OS 的不顯示；按 × 後重新整理不再出現
 - [ ] **防火牆系統自動規則不算異動**（`tests/test_fw_sentinel.py`）：OPNsense 升級後 API 多回傳的系統規則（raw 帶 is_automatic）不發「規則有異動」通知；規則異動頁顯示一行「系統自動規則…」可展開、標「不需確認」；管理員新增的規則照樣通知；升級後下一輪同步不會再多一筆快照
@@ -193,6 +198,7 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
   - **換資料頁只換分頁的那一區**（`e2e/warroom.spec.ts`）：異常頁按 ↓ 只有待處理異常上下滑動，時序與標題不動；換主題才整頁換；右下箭頭是上下
   - **播放清單拖拉排序**（`e2e/warroom.spec.ts`）：設定頁拖拉後編號跟著變、關掉的顯示「–」；存檔後電視照新順序播，頁尾 01 是第一個播的，數字鍵跳到對應位置
   - **按鍵表一份**（`utils/__tests__/warroomKeys.test.ts`）：電視按 H 看到的與戰情室設定頁的按鍵表完全一樣（含 H、Home、Esc）；右下按鍵提示常駐、是鍵盤圖示加 H；按 ? 沒有作用
+  - **滿版不截斷**（`e2e/warroom.spec.ts`「滿版資料不截斷」）：總覽三個地點時第三個的「未掃描」那行在畫面內；未授權 IP 的判斷線索是逐項圖示＋文字（不是一串「·」）；DNS 比對群組每個來源 72 格（每格 2 筆）時「每格約 N 筆記錄」不超出格線；採集健康代理條帶上方有「最近 N 輪掃描負載，一格一輪」、頁尾沒有「最近備份」；整合來源標籤的邊框在電視上看得出一顆一顆
   - **暫停仍更新資料**：暫停 30 秒以上，頁首「資料 HH:MM」會往前走，主題不變
   - **英文、日文**：指標名稱最多兩行、標題最多兩行、頁尾不溢出（e2e 三語各一輪）；容量頁已配置（黃綠）與可配置（深灰）一眼分得出
   - **集區卡片標題是子網路名稱**、下方寫「DHCP 集區 · 伺服器」；虛擬化叢集寫「N 個節點」
@@ -209,6 +215,10 @@ PostgreSQL 叢集早就存在（於是 `pgvector` 裝到錯的那一個）、`pn
 - [ ] 對外開放服務清單（`tests/test_attack_surface_ai.py`、`src/utils/__tests__/attackSurfaceExport.test.ts`）：「單位／網段」預設不顯示（FQDN 檢視也跟著）；每種匯出格式都下載得到（PDF/DOCX/ODT/HTML 11 欄時是橫式、短欄不會一字一行；XLSX/ODS 有 IP 與 FQDN 兩張表；CSV 是目前頁籤；跑過 AI 分析後 JSON 與 Markdown 會附上）；沒設定模型時「AI 分析」反灰並有說明、有模型時邊寫邊顯示、關掉對話框後可以「檢視 AI 分析」、只分析篩選後的列、模型出錯顯示訊息而不是 500
 - [ ] 外部 DNS 解析（`tests/test_external_dns_core.py`、`tests/test_external_dns_round.py`；可在 127.0.0.1 起一個可丟棄的 DNS 試）：沒設定時 FQDN 頁籤說明去哪裡設；「管理 → 系統設定」的「DNS 解析器」加解析器（測試顯示答案）、對外網域、存檔（不合格的 IP 或網域會被擋，不會靜靜丟掉），「立即查詢」走背景作業；之後 FQDN 頁籤在內部 IP 旁顯示外部答案、屬於誰、外部狀態（一致／外部查不到／指向非我方／答案不一致／沒有轉發／失敗），滑過看各解析器答案，篩選可用，匯出帶這些欄位；不在對外網域的名稱絕不送出去查；改答案再查一次會記錄變動並發「外部 DNS 解析變動」通知，連結開到該頁籤；刪除防火牆整合會清掉它的自身位址
 - [ ] 對外開放服務「服務」欄（`tests/test_surface_service.py`）：規則名稱寫了應用程式（Jitsi、OpenVPN、Reverse Proxy）時顯示該應用程式「依名稱」；只有埠號的顯示「依埠號推測」，敏感埠另標「未確認」；對目標按過 IP 探測後顯示探測到的產品「已確認」（滑過看探測那一行）；位址換手前的探測不採用；名稱寫別的、實際探到 SSH/RDP 時標「名稱與實際不符」；AI 分析不再把 UDP 10000 講成 Webmin
+- [ ] 對外開放服務的重複規則（`tests/test_attack_surface_duplicate_rules.py`、`e2e/attack-surface.spec.ts`）：同一台 OPNsense 上兩條完全相同的 WAN 放行規則只列一列、標「重複 ×2」，滑過去看到兩個序號（小的在前）；來源或協定不同的照舊分開列
+- [ ] OPNsense 升級不誤報規則異動（`tests/test_opnsense_filter_rules_upgrade.py`）：升級 OPNsense 韌體期間不會收到「移除 N 條、＋ ? any → any」的規則異動通知；舊端點 `filter/get` 的 `rules.rule` 巢狀會解開
+- [ ] 憑證推送目標表單（`e2e/cert-push.spec.ts`）：換設備時管理 API 網址下方的範例跟著換、網址欄預設空白；OPNsense 不必先存檔，填好網址與 Key／Secret 就能讀設備上的憑證並選擇；欄位名稱都是一行、下拉選單與按鈕同高
+- [ ] 戰情室判斷線索的作業系統／設備類型（`tests/test_warroom_hints.py`）：有 IP 記錄的未授權以外項目顯示設備類型與作業系統；未授權 IP 對到 VM 時顯示 VM 回報的作業系統
 - [ ] 頁籤看得出可以切換（深色與淺色都看）：異常偵測、SNMP、進階 → 電路、掃描代理等頁的頁籤：淺色是頁籤列下方細線（沒有灰色色塊）、深色是淡底色條，每個頁籤滑過有底色、
   選中的加粗加底色、底線 3px；segment／card 型頁籤不受影響；手機寬度頁籤仍可左右捲動
 - [ ] 登入卡片在淺色與深色背景都有陰影；裝置頁 SNMP 卡片只在有收集目標時出現，標題高度與間距跟其他卡片一致
@@ -735,6 +745,48 @@ GitHub issue #47（一台裝置三萬多個埠 → IN 超過 asyncpg 32767 參�
 - [ ] **SCVMM**：第一台 VMM 伺服器連不上時改用下一台；VM 的所在主機取自 VMM
 - [ ] 刪除連線：它的 VM、主機連接埠、主機名稱回報一併移除，叢集記錄保留
 - [ ] 第一次接真機：拿幾台 VM 跟 Hyper-V 管理員／VMM 主控台對照（狀態、記憶體、MAC、IP、VLAN、客體 OS）；對不上的屬性是空的，不是錯誤
+
+## 7b1a. Bigstack CubeCOS / OpenStack 整合（管理 → 外部系統整合 → CubeCOS / OpenStack）：**Beta；動到這個整合、共用的虛擬化資料表或 IP 詳細資料的 OpenStack 卡片就要跑**
+
+> 唯讀：Keystone v3（帳號密碼或應用程式憑證）、Nova、Neutron；產品選 CubeCOS 時另用同一個 Keystone token 從 CubeCOS API
+> 讀節點清單。對 Nova / Neutron / CubeCOS 只送 GET，唯一的 POST 是向 Keystone 取 token。OpenStack 的部分對 DevStack
+> stable/2026.1 驗證過（fake 驅動、兩台運算主機）；CubeCOS 只對照 CubeCOS API 原始碼（v3.1.0）寫的模擬器驗證過，
+> 第一次接真的 CubeCOS 要對照欄位。
+>
+> 自動測試：`backend/tests/test_openstack.py`（模擬的雲）、`backend/tests/test_openstack_live.py`（CubeCOS 模擬器加上基本的
+> OpenStack 實機測試，沒設環境變數就略過）、`backend/tests/test_openstack_live_acceptance.py`（對 DevStack 測試靶的驗收，
+> 沒設 `JTIPAM_OPENSTACK_TARGET_ENV` 與 `JTIPAM_OPENSTACK_TARGET_SEED` 就略過）、`frontend/e2e/openstack.spec.ts`（模擬 API）。
+>
+> 測試靶（只在開發機上用、可丟棄、資料都是假的）：
+> - `scripts/openstack-test-target`：兩個 LXD 容器裡的 DevStack。`sudo .../create.sh`（第一次約 70 分鐘）、`sudo .../seed.sh`
+>   （灌測試資料；`--info` 印出網址與隨機產生的密碼）、重開機後 `sudo .../start.sh`、`sudo .../destroy.sh` 全部刪除。
+>   怎麼對它跑驗收測試：見它的 README。
+> - `scripts/cubecos-test-target`：`python3 scripts/cubecos-test-target/fake_cubecos.py`（HTTPS，127.0.0.1:18443，測試 CA 在
+>   `GET /_test/ca.pem`）、`scripts/cubecos-test-target/selftest.sh`；jt-ipam 跑完後 `GET /_test/write_calls` 必須還是 0。
+
+- [ ] 新增一個帳號密碼的連線（帳號、使用者網域、專案、專案網域）與一個應用程式憑證的連線（ID 與密鑰）；密鑰與 CA 憑證不會回傳
+  （改看 `has_secret`、`has_ca_cert` 旗標），編輯時密鑰留空不變更，「清除」會移除 CA 憑證。網址帶帳密、查詢字串或 # 片段會被擋（422）
+- [ ] **測試**列出 Keystone、Nova、Neutron（產品選 CubeCOS 時加上 CubeCOS）是否連得到，以及看得到的範圍：所有專案、VM 所在主機、
+  網卡綁定的主機、Nova 微版本、看得到的專案數。密碼錯誤顯示目前語言的 `openstack_auth_failed`；連不上時帶傳輸層原因
+- [ ] **reader 帳號**（只有 `reader` 角色）：測試結果說不允許讀所有專案、看不到 VM 所在主機；同步只讀 token 所屬的專案、
+  不算同步失敗，別的專案的 VM 一律不刪（自己專案裡刪掉的 VM 會移除），虛擬機清單的節點欄是空的（不知道，不是用猜的）
+- [ ] **admin 帳號**：「立即同步」走背景作業（執行中再按一次回同一個作業）；進階 → 虛擬化 (OpenStack) 列出所有專案的 VM：
+  節點、狀態、vCPU、記憶體、專案欄、網卡；關機的 VM 也在。分頁：超過一頁的 VM 全部讀到
+- [ ] **子網路對應**頁籤：雲裡只有一個、jt-ipam 範圍內也只有一個的 CIDR 顯示「自動」；兩個專案用同一個 CIDR 的留在「待對應」，
+  jt-ipam 有兩個相同 CIDR 子網路的也是。手動指定（或「不對應」）下一次同步不會被覆寫，稽核紀錄看得到
+- [ ] **IPAM**：只有已對應子網路裡的位址連到 IP 記錄（MAC 與主機名稱來源 `openstack`）；待對應的子網路什麼都不連，
+  就算別的地方有同位址的 IP 記錄也一樣；打開自動建立時只在對應的子網路內建立。雙堆疊：VM 的主要 IP 是 IPv4 那個
+- [ ] **浮動 IP**：在 IP 詳細資料的「OpenStack 網卡」卡片跟著網卡顯示（VM、網路、專案）；浮動 IP 本身不會被當成客體位址連進 IPAM；
+  沒綁定的浮動 IP 不掛在任何東西上
+- [ ] **刪除**：刪掉一台 VM，下一次完整同步後消失；刪掉一個網卡或子網路，一次完整同步後還在、第二次才消失。同步時讓 Neutron 或 Nova
+  失敗（403、逾時）：什麼都不刪，並顯示錯誤
+- [ ] **即時遷移與改名**（DevStack 測試靶）：VM 仍是同一列，節點跟著換，回報新的名稱
+- [ ] **CubeCOS**（模擬器）：產品選 CubeCOS，「CubeCOS 節點」頁籤列出節點（角色、管理 / Provider / 儲存 IP、序號）；
+  401、轉址或 HTML 登入頁都是 `cubecos_auth_failed`；CubeCOS 失敗時保留上一次的節點清單、OpenStack 的部分照常；模擬器沒有任何寫入紀錄
+- [ ] 刪除連線：它的 VM、網卡、子網路對應與主機名稱回報一併移除，叢集記錄保留
+- [ ] 有全域讀取的非管理員：看得到的 IP，詳細資料的 OpenStack 卡片正常；`/api/v1/openstack-instances` 本身限管理員
+- [ ] 第一次接真的雲：拿幾台 VM 與網卡跟 Horizon 或 `openstack server list --long` 對照（狀態、主機、MAC、固定 IP、浮動 IP）；
+  CubeCOS 拿節點清單跟 CubeCOS 介面對照
 
 ## 7b2. MikroTik RouterOS 整合（管理 → 外部系統整合 → MikroTik）：**Beta**
 

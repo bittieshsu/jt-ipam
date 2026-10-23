@@ -245,6 +245,7 @@ ORIGIN_MODELS: dict[str, tuple[str, str]] = {
     # Proxmox 的 origin 是叢集 id（沒有叢集的連線才用連線本身的 id，那張表沒有名稱 → 顯示 API 主機）
     "proxmox": ("app.models.virt", "VirtCluster"),
     "hyperv": ("app.models.hyperv", "HyperVInstance"),
+    "openstack": ("app.models.openstack", "OpenStackInstance"),
     "zabbix": ("app.models.zabbix", "ZabbixInstance"),
     "wazuh": ("app.models.wazuh", "WazuhInstance"),
     "adguard": ("app.models.adguard", "AdGuardInstance"),

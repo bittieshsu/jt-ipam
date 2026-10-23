@@ -67,6 +67,15 @@ def _headers(key: str) -> dict[str, str]:
     return {"X-API-Key": key, "Accept": "application/json"}
 
 
+def _status_error(path: str, status: int, content_type: str, text: str) -> str:
+    """非 200 的錯誤訊息。404 而且回的是 HTML：REST API（pfrest）套件不在，webConfigurator 自己回了 404 頁
+    （pfSense 升級會移除非官方套件，要針對新版本重新安裝；10-23 正式站台的一台 pfSense）。"""
+    if status == 404 and ("html" in content_type.lower() or text.lstrip().lower().startswith("<!doctype html")):
+        return (f"pfSense GET {path}: 404，REST API 套件（pfrest）沒有回應，可能尚未安裝或在 pfSense 升級後被移除，"
+                "請針對目前的 pfSense 版本重新安裝")
+    return f"pfSense GET {path}: {status} {text[:200]}"
+
+
 async def _api_get(fw: PfSenseFirewall, path: str, *, timeout: float = 15.0) -> Any:
     url = f"{fw.api_url.rstrip('/')}{path}"
     key = _decrypt_key(fw)
@@ -79,7 +88,7 @@ async def _api_get(fw: PfSenseFirewall, path: str, *, timeout: float = 15.0) -> 
     except httpx.HTTPError as exc:
         raise PfSenseError(f"transport: {transport_detail(exc)}") from exc
     if resp.status_code != 200:
-        raise PfSenseError(f"pfSense GET {path}: {resp.status_code} {resp.text[:200]}")
+        raise PfSenseError(_status_error(path, resp.status_code, resp.headers.get("content-type", ""), resp.text))
     body = resp.json()
     if isinstance(body, dict) and "data" in body:  # pfrest 外層 envelope
         return body["data"]

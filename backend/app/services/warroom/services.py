@@ -23,7 +23,7 @@ from app.core.sqlin import in_values
 from app.services.warroom.common import scoped_visibility, section, unit_for, waffle
 
 MAX_SOURCES = 4
-SOURCE_CELLS = 96                    # 每個來源最多幾格（12 欄 × 8 列）
+SOURCE_CELLS = 72                    # 每個來源最多幾格（12 欄 × 6 列；8 列加上數量那行會超出下方格線）
 POOL_CELLS = 40                      # 集區條帶的格數
 BUCKETS = (("expired", -math.inf, 0), ("d7", 0, 8), ("d14", 8, 15), ("d30", 15, 31))
 STATUS_RANK = {"mismatch": 0, "pending": 1, "incomplete": 2, "ok": 3}

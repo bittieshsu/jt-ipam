@@ -84,8 +84,13 @@ async def _priority(session: AsyncSession, page: int, where: list[Any]) -> dict[
              for o in obs]
     items.sort(key=lambda i: (i["severity"] != "high",))            # 穩定排序：同嚴重度維持新到舊
     shown, page, pages = paginate(items, PER_PAGE, page)
+    # 判斷線索（MAC 廠牌、VM、DNS 名稱）：只查畫面上這幾筆（hints.py）
+    from app.services.warroom.hints import ip_hints
+    hints = await ip_hints(session, [it["ip"] for it in shown if it.get("ip")])
     for n, it in enumerate(shown):
         it["rank"] = (page - 1) * PER_PAGE + n + 1
+        if it.get("ip") in hints:
+            it["hints"] = hints[it["ip"]]
     total = int(await session.scalar(select(func.count()).select_from(AnomalyObservation).where(
         AnomalyObservation.resolved_at.is_(None), *where)) or 0)       # 清單只取最新 500 筆，總數另外算
     return section("ok" if items else "empty", items=shown, total=total, page=page, pages=pages)
@@ -116,7 +121,8 @@ async def build(session: AsyncSession, *, user: Any, cfg: dict[str, Any], page: 
                 "timeline": section("forbidden"), "priority": section("forbidden"), "evidence": section("forbidden")}
     # 顯示範圍：只算落在範圍內子網路的觀測（沒有 IP 的那幾類，例如失效 DNS 記錄，設了範圍就不列）
     scope = await scope_subnet_ids(session, cfg)
-    where = [observation_in_subnets(scope)] if scope is not None else []
+    from app.services.warroom.common import actionable_observation
+    where = [actionable_observation(), *([observation_in_subnets(scope)] if scope is not None else [])]
     prio = await _priority(session, page, where)
     six = now - timedelta(minutes=SLOTS * SLOT_MINUTES)
     new_6h = int(await session.scalar(select(func.count()).select_from(AnomalyObservation).where(

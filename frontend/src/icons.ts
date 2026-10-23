@@ -21,6 +21,7 @@ import {
   Plus,
   FingerprintScan,
   Barcode,
+  Industry,
   Copy,
   Archive,
   Undo,
@@ -129,6 +130,9 @@ import {
   ShareAndroid,
   NetworkRight,
   Rings,
+  WifiOff,
+  UserXmark,
+  DatabaseBackup,
 } from "@iconoir/vue";
 
 // ── 通用 ──
@@ -282,6 +286,8 @@ export const TestIcon = CheckCircle;
 export const IdentifyIcon = FingerprintScan;
 /** MAC 位址（網卡的硬體識別碼）：選單的「MAC 位址」 */
 export const MacIcon = Barcode;
+/** 網卡製造商（依 MAC 前綴查到的廠牌） */
+export const VendorIcon = Industry;
 
 /**
  * 把 Iconoir icon 包成 NMenu / NDropdown / NTabs 認得的 render function。
@@ -354,3 +360,7 @@ export const GraphForceIcon = ShareAndroid;   // 自動排列：幾個點互相�
 export const GraphRadialIcon = SunLight;      // 放射：中心向外
 export const GraphTreeIcon = NetworkRight;    // 樹狀：由左往右
 export const GraphRingsIcon = Rings;          // 依影響分層：同心圈
+// 戰情室（10-22 加圖示）：失聯、未授權、備份
+export const OfflineIcon = WifiOff;
+export const UnauthorizedIcon = UserXmark;
+export const BackupIcon = DatabaseBackup;

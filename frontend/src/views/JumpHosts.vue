@@ -102,7 +102,7 @@ async function submit() {
     name: form.value.name, host: form.value.host, port: form.value.port,
     username: form.value.username, auth_kind: form.value.auth_kind,
     enabled: form.value.enabled, max_sessions: form.value.max_sessions,
-    description: form.value.description || undefined,
+    description: form.value.description ?? "",
   };
   // 空白＝不修改（編輯既有跳板時不必重打金鑰／密碼）
   if (form.value.private_key) payload.private_key = form.value.private_key;

@@ -51,10 +51,10 @@ export function aggregateCounts(summary: any): { ins: number; upd: number; err: 
   // 3) 通用：top-level 數字，或「一層巢狀分組」
   //    （librenms：{devices:{seen,inserted,updated}, arp:{...}, fdb:{...}, vlans:{seen,upserted,mappings}}）
   const bump = (k: string, v: number) => {
-    if (k.endsWith("_inserted") || k === "inserted" || k === "upserted" || k === "new") out.ins += v;
+    if (k.endsWith("_inserted") || k === "inserted" || k === "upserted" || k === "new" || k === "created") out.ins += v;
     else if (k.endsWith("_updated") || k === "updated" || k.endsWith("_matched") || k.endsWith("_filled") || k === "mappings") out.upd += v;
-    else if (k.endsWith("_errored") || k === "errored" || k.endsWith("_failed") || k === "missing_agents") out.err += v;
-    else if (k.endsWith("_seen") || k === "seen" || k.endsWith("_count") || k === "fetched") out.total += v;
+    else if (k.endsWith("_errored") || k === "errored" || k.endsWith("_failed") || k === "failed" || k === "missing_agents") out.err += v;
+    else if (k.endsWith("_seen") || k === "seen" || k.endsWith("_count") || k === "fetched" || k === "total") out.total += v;
   };
   for (const [k, v] of Object.entries(summary)) {
     if (typeof v === "number") bump(k, v);
@@ -269,3 +269,81 @@ export function taskResultText(task: Pick<BackgroundTask, "kind" | "status" | "s
   if (task.status !== "succeeded") return "";
   return formatSummary(task.kind, task.summary, t);
 }
+
+/** 結果欄的標籤（10-23 使用者：「RustDesk、GeoIP、IP 探測、Recog 的結果欄顯示方式跟其他不一樣，風格請統一」）。
+ *  這些作業的結果不是「新增／更新幾筆」，以前直接印一句話；改成跟其他作業一樣的一排標籤（名稱＋數字），
+ *  點開仍是完整說明與原始 JSON。回傳 null＝用通用的「新增／更新／失敗／總數」四個標籤。 */
+export type ChipType = "default" | "info" | "warning" | "success" | "error";
+export interface SummaryChip { label: string; type: ChipType }
+
+export function summaryChips(kind: string, summary: any, t: T): SummaryChip[] | null {
+  if (!TEXT_SUMMARY_KINDS.has(kind) && !CHIP_ONLY_KINDS.has(kind)) return null;
+  if (!summary || typeof summary !== "object") return [];
+  const num = (v: any) => (typeof v === "number" ? v : Number(v ?? 0)) || 0;
+  const c = (key: string, n: number, type: ChipType = "default"): SummaryChip => ({ label: `${t(`tasks.chip.${key}`)} ${n}`, type });
+  const errs = (): SummaryChip[] => (summary.errors && typeof summary.errors === "object"
+    ? [{ label: t("tasks.chip.partial_failed", { n: Object.keys(summary.errors).length }), type: "error" }] : []);
+  switch (kind) {
+    case "rustdesk.sync":
+      return [c("peers", num(summary.peers), "info"), c("online", num(summary.online), "success"),
+              c("matched", num(summary.matched), "warning"),
+              ...(num(summary.removed) ? [c("removed", num(summary.removed), "error")] : [])];
+    case "checkpoint.sync":
+      return [c("gateways", num(summary.gateways), "info"), c("rules", num(summary.rules), "warning"),
+              c("objects", num(summary.objects)), c("nat", num(summary.nat)), ...errs()];
+    case "checkpoint_gaia.sync":
+      return [c("subnets", num(summary.dhcp_subnets), "info"), c("pools", num(summary.pools)),
+              c("arp", num(summary.arp_rows), "warning"), c("leases", num(summary.leases)), ...errs()];
+    case "isc_dhcp.sync":
+    case "technitium_dhcp.sync":
+      return [c("pools", num(summary.pools), "info"), c("reservations", num(summary.reservations), "warning"),
+              c("leases", num(summary.leases))];
+    case "isoinsight.sync": {
+      const r = summary.result ?? "success";
+      return [{ label: t(`isoinsight.result.${r}`), type: r === "success" ? "success" : r === "partial" ? "warning" : "error" },
+              c("fetched", num(summary.fetched)), c("created", num(summary.created), "info"),
+              c("updated", num(summary.updated), "warning"), c("unmatched", num(summary.unmatched))];
+    }
+    case "oui.refresh":
+      return [c("parsed", num(summary.parsed)), c("created", num(summary.inserted), "info"),
+              c("updated", num(summary.updated), "warning")];
+    case "recog.refresh":
+      if (summary.status === "updated") {
+        return [{ label: `${summary.previous || "—"} → ${summary.release || "—"}`, type: "success" },
+                c("fingerprints", num(summary.fingerprints))];
+      }
+      if (summary.status === "up_to_date") return [{ label: t("tasks.chip.up_to_date", { v: summary.release || "—" }), type: "default" }];
+      return [];
+    case "geoip.refresh": {
+      if (summary.error === "not_configured") return [{ label: t("tasks.chip.not_configured"), type: "warning" }];
+      const res = (summary.results || {}) as Record<string, { ok?: boolean }>;
+      return Object.entries(res).map(([ed, r]) => ({ label: `${ed} ${r?.ok ? "✓" : "✗"}`, type: r?.ok ? "success" : "error" }));
+    }
+    case "ip.identify":
+      if (!summary.device_type) return [{ label: t("tasks.chip.running"), type: "info" }];
+      return [{ label: t(`identify.type.${summary.device_type}`), type: summary.device_type === "unknown" ? "default" : "info" },
+              ...(summary.os ? [{ label: String(summary.os), type: "default" as ChipType }] : []),
+              c("ports", num(summary.ports), num(summary.ports) ? "warning" : "default")];
+    case "openstack.sync":
+      return [c("vms", num(summary.vms), "info"), c("nics", num(summary.ports)), c("subnets_os", num(summary.subnets)),
+              c("ipam_linked", num(summary.ipam_linked), "warning"),
+              ...(num(summary.pending_subnets) ? [c("pending_subnets", num(summary.pending_subnets), "warning")] : []),
+              ...(num(summary.removed_vms) ? [c("removed", num(summary.removed_vms), "error")] : []),
+              ...(summary.all_projects === false ? [{ label: t("tasks.chip.own_project_only"), type: "default" as ChipType }] : [])];
+    case "impact.run":
+    case "impact.ai":
+      return [c("findings", num(summary.findings), "info"),
+              c("change_required", num(summary.change_required), num(summary.change_required) ? "warning" : "default"),
+              c("blockers", num(summary.blockers), num(summary.blockers) ? "error" : "default"),
+              c("gaps", num(summary.gaps))];
+    case "external_dns.run":
+      return [c("names", num(summary.names), "info"),
+              c("changed", num(summary.changed), num(summary.changed) ? "warning" : "default"),
+              c("failed", num(summary.failed), num(summary.failed) ? "error" : "default")];
+    default:
+      return null;
+  }
+}
+
+/** 結果不是「新增／更新幾筆」、但以前沒列進 TEXT_SUMMARY_KINDS 的：四個數字全是 0（10-23 作業頁看到） */
+const CHIP_ONLY_KINDS = new Set(["openstack.sync", "impact.run", "impact.ai", "external_dns.run"]);

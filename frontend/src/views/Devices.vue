@@ -367,7 +367,7 @@ async function submit() {
       vendor: form.value.vendor || undefined,
       model: form.value.model || undefined,
       serial: form.value.serial || undefined,
-      description: form.value.description || undefined,
+      description: form.value.description ?? "",
       location_id: form.value.location_id,
       rack_id: form.value.rack_id,
       u_position: form.value.u_position,

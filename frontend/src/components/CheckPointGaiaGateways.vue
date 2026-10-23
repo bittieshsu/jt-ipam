@@ -178,7 +178,7 @@ async function submit() {
     name: f.name.trim(), gaia_url: f.gaia_url.trim(), username: f.username.trim(), verify_tls: f.verify_tls,
     enabled: f.enabled, sync_interval_seconds: f.sync_interval_seconds, sync_dhcp: f.sync_dhcp,
     allow_scripts: f.allow_scripts, sync_arp: f.sync_arp, sync_leases: f.sync_leases,
-    scope_subnet_ids: f.scope_subnet_ids, description: f.description || undefined,
+    scope_subnet_ids: f.scope_subnet_ids, description: f.description ?? "",
   };
   if (f.secret.trim()) payload.secret = f.secret.trim();
   try {

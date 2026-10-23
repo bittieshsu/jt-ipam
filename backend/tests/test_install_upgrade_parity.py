@@ -119,3 +119,17 @@ def test_backend_allows_numa_memory_policy_calls() -> None:
     assert "SystemCallFilter=mbind" in body
     for fn in ("cmd_install", "cmd_upgrade"):
         assert "ensure_backend_syscall_dropin" in _steps(_body(fn)), f"{fn} 沒有寫入 NUMA 系統呼叫的 drop-in"
+
+
+def test_pip_is_raised_to_a_safe_minimum_on_both_paths() -> None:
+    """pip 內嵌自己的 certifi，安裝／升級時從 PyPI 下載就靠它驗證（2026-10 eMudhra/emSign 中間憑證金鑰外洩，
+    pip 26.2.2 起不再信任；只更新系統憑證庫擋不住）。升級路徑以前完全不升級 pip，既有站台會一直留著舊版。"""
+    import re
+    src = SCRIPT.read_text(encoding="utf-8")
+    install = src[src.index("# -- 5. backend venv --"):src.index("install_rdp_optional", src.index("# -- 5. backend venv --"))]
+    upgrade = src[src.index("cmd_upgrade() {"):]
+    upgrade = upgrade[:upgrade.index("pip install --quiet -e .")]
+    for name, block in (("install", install), ("upgrade", upgrade)):
+        m = re.search(r'pip install[^\n]*--upgrade[^\n]*"pip>=(\d+)\.(\d+)\.(\d+)"', block)
+        assert m, f"{name} 路徑要先把 pip 升到安全的最低版本"
+        assert tuple(int(x) for x in m.groups()) >= (26, 2, 2), name

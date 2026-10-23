@@ -49,7 +49,8 @@ const ICONS: Record<string, any> = {
 function nodeTypeLabel(n: RelationNode): string {
   if (n.type === "vmnode") {
     return n.platform === "vmware" ? t("relations.esxi_host")
-      : n.platform === "hyper-v" ? t("relations.hyperv_host") : t("relations.pve_node");
+      : n.platform === "hyper-v" ? t("relations.hyperv_host")
+      : n.platform === "openstack" ? t("relations.openstack_host") : t("relations.pve_node");
   }
   return TYPE_LABEL.value[n.type] ?? n.type;
 }

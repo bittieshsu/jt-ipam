@@ -122,6 +122,11 @@ with the real cause hidden in a traceback.
 - [ ] **Optional email** (`tests/test_user_email_optional.py`): a local account saves without an email (the production build shows the Email field and its hint);
   an address without @ returns "email address is not valid"; clearing it on edit saves; a login name without @ never matches an empty email;
   an LDAP user whose directory has no email gets an empty email on first login (not name@ldap.local); mail skips empty and @ldap.local addresses
+- [ ] **Proxmox VE connection name** (`tests/test_proxmox_name.py`): name on create (blank = host name), rename on edit; the war room collection sources show the names instead of two "Proxmox VE"
+- [ ] **Scan agent rename, clearable descriptions** (`e2e/scan-agent-subnet-list.spec.ts`, `src/__tests__/clearableDescription.test.ts`): the list updates after a rename, duplicates are refused; clearing a description on any integration or settings form and saving leaves it empty when reopened
+- [ ] **War room hints and icons** (`tests/test_warroom_hints.py`): unauthorized IP cards show VM / DNS name / vendor or random MAC / MAC; section headings and anomaly types have icons; integration sources are tags
+- [ ] **Scan agent subnet list** (`e2e/scan-agent-subnet-list.spec.ts`, `tests/test_scan_agent_subnet_list.py`): clicking the subnet count on the scan agents page lists as many subnets as the count, sorted by CIDR; clicking a CIDR opens that subnet
+- [ ] **Certificate push to devices** (`tests/test_cert_push_*.py`, `e2e/cert-push.spec.ts`): with one real device (or trial) per vendor: FortiGate import only first, then put in use for the admin GUI; OPNsense replace a test certificate first (no web GUI restart), then the web GUI one; Palo Alto a test SSL/TLS profile; pfSense the web GUI; each time the status is "Pushed and verified" and the device really switched; point the check address at the wrong host and expect "Verification failed, restored" with the device back to its previous state; credentials never appear on screen or in API responses; the audit has cert_push_requested and cert_push (without the key); with auto push on, uploading a new version is pushed on the next sync
 - [ ] **PVE xterm font size** (`composables/__tests__/useTerminalFontSize.test.ts`): a PVE container xterm console shows A− / A+ once connected; the text resizes and rows/columns are recalculated; a size set in the SSH console carries over
 - [ ] **SSH tmux/screen note** (`e2e/ssh-tmux-hint.spec.ts`, `utils/__tests__/sshHints.test.ts`): the SSH form and the connected terminal show the note for a Linux host; Windows, network devices and unknown OS do not; after closing it, a reload does not show it again
 - [ ] **Firewall system-generated rules are not changes** (`tests/test_fw_sentinel.py`): system rules an upgraded OPNsense starts returning (raw `is_automatic`) send no "rules changed" notification; the rule changes page shows one collapsible "System-generated rules" line marked "No review needed"; rules an administrator adds are still notified; the next sync after the upgrade adds no extra snapshot
@@ -240,6 +245,10 @@ to see what a customer sees.**
 - [ ] Exposed services list (`tests/test_attack_surface_ai.py`, `src/utils/__tests__/attackSurfaceExport.test.ts`): "Customer / Subnet" hidden by default (also in the FQDN view); every export format downloads (PDF/DOCX/ODT/HTML in landscape with 11 columns, no one-letter-per-line columns; XLSX/ODS have IP and FQDN sheets; CSV is the current tab; JSON and Markdown include the AI analysis once run); "AI analysis" is disabled with a hint when no model is set, streams text as it writes, survives closing the dialog ("View AI analysis"), uses only the filtered rows, and shows a model error as a message, not a 500
 - [ ] External DNS resolution (`tests/test_external_dns_core.py`, `tests/test_external_dns_round.py`; try with a throwaway DNS on 127.0.0.1): without setup the FQDN tab says where to set it up; in the "DNS resolvers" card under Admin → System Settings add a resolver (test shows the answer), a public domain, save (an invalid IP or domain is refused, not silently dropped), "Check now" runs as a background task; the FQDN tab then shows external answer, owner and status next to the internal IP (consistent / not public / points elsewhere / answers differ / no forwarding / failed), hover shows per-resolver answers, the filter works, exports include the columns; a name outside the public domains is never queried; changing the answer and checking again records a change and sends "External DNS resolution changed" with a link to the tab; deleting a firewall integration removes its own addresses
 - [ ] Exposed services "Service" column (`tests/test_surface_service.py`): a rule named after an app (Jitsi, OpenVPN, Reverse Proxy) shows that app "By name"; a port-only row shows "Port guess" and "Unverified" when sensitive; after an IP probe of the target the row shows the probed product "Confirmed" (hover shows the probe line); a probe older than the address change is ignored; a confirmed SSH/RDP behind a rule named otherwise shows "Name mismatch"; the AI analysis no longer calls UDP 10000 Webmin
+- [ ] Exposed services duplicate rules (`tests/test_attack_surface_duplicate_rules.py`, `e2e/attack-surface.spec.ts`): two identical WAN permit rules on one OPNsense show as one row tagged "Duplicate ×2" with both sequences on hover (lowest first); rules with a different source or protocol stay separate
+- [ ] OPNsense upgrades raise no false rule changes (`tests/test_opnsense_filter_rules_upgrade.py`): upgrading OPNsense firmware does not send "removed N, + ? any → any"; the legacy `filter/get` `rules.rule` nesting is unwrapped
+- [ ] Certificate push target form (`e2e/cert-push.spec.ts`): the API URL example follows the device and the field starts empty; for OPNsense the device certificates can be read and picked before saving once the URL and key/secret are filled in; labels stay on one line and the picker and button have the same height
+- [ ] War room hints OS / device type (`tests/test_warroom_hints.py`): items with an IP record show device type and OS; an unauthorized IP matched to a VM shows the OS the VM reports
 - [ ] Tabs look clickable (check dark and light): on anomaly detection, SNMP, Advanced → Circuits, scan agents and
   other pages the tab row has a thin underline in light (no grey block) and a tinted strip in dark, each tab gets a hover background, the active one is bold with a
   background and a 3px underline; segment and card tabs are unchanged; tabs still scroll sideways at phone width
@@ -943,6 +952,7 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
   - **Changing data page swaps only the paged region** (`e2e/warroom.spec.ts`): on Anomalies, ↓ slides only the open anomalies; the timeline and title stay; changing topic swaps the page; the bottom-right arrows point up and down
   - **Playlist drag order** (`e2e/warroom.spec.ts`): dragging in settings renumbers the list and switched-off topics show "–"; after saving the TV plays in the new order, 01 in the footer is the first topic played and number keys follow it
   - **One key list** (`utils/__tests__/warroomKeys.test.ts`): pressing H on the TV shows exactly the table in War room settings (including H, Home, Esc); the key hint is always shown as a keyboard icon with H; ? does nothing
+  - **Nothing clipped** (`e2e/warroom.spec.ts` "滿版資料不截斷"): with three locations the third one's "Unscanned" line stays on screen; unauthorized IP hints are separate icon + text items (no "·" chain); with 72 boxes per DNS source (2 records each) "about N records per box" stays above the grid line; each agent strip in Collection health is labelled "Load of the last N scans, one box each" and the footer has no "Last backup"; source tags show a visible border on a TV
   - **Paused still refreshes**: paused for over 30 seconds, "Data HH:MM" moves on and the topic does not change
   - **English and Japanese**: metric labels and titles at most two lines, footer does not overflow (e2e runs all three languages); allocated (green) and available (dark grey) are easy to tell apart
   - **Pool cards are titled by subnet** with "DHCP pool · server" below; clusters say "N nodes"
@@ -995,6 +1005,58 @@ parameter limit): medium-sized test data cannot catch "one query fits" assumptio
 - [ ] Delete the connection: its VMs, host ports and host name reports are removed; the cluster record stays.
 - [ ] Field reality check (first real run): compare a few VMs with Hyper-V Manager / VMM console
   (state, memory, MAC, IP, VLAN, guest OS); properties that do not line up come back empty, not as errors.
+
+## 7b1a. Bigstack CubeCOS / OpenStack integration (Admin → External integrations → CubeCOS / OpenStack): **Beta; whenever this integration, the shared virtualization tables or the IP detail OpenStack card change**
+
+> Read-only: Keystone v3 (password or application credential), Nova, Neutron; product CubeCOS also reads the node list
+> from the CubeCOS API with the same Keystone token. Only GET requests to Nova / Neutron / CubeCOS; the only POST is the
+> Keystone token request. The OpenStack part is verified against DevStack stable/2026.1 (fake driver, two compute hosts);
+> the CubeCOS part only against the simulator built from the CubeCOS API source (v3.1.0), so the first real CubeCOS is a
+> field check.
+>
+> Automated: `backend/tests/test_openstack.py` (mocked cloud), `backend/tests/test_openstack_live.py` (CubeCOS simulator
+> plus a basic OpenStack live run, skipped without its environment variables), `backend/tests/test_openstack_live_acceptance.py`
+> (acceptance against the DevStack target, skipped unless `JTIPAM_OPENSTACK_TARGET_ENV` and `JTIPAM_OPENSTACK_TARGET_SEED`
+> are set), `frontend/e2e/openstack.spec.ts` (mocked API).
+>
+> Test targets (dev machine only, throwaway, fake data):
+> - `scripts/openstack-test-target`: DevStack in two LXD containers. `sudo .../create.sh` (about 70 minutes the first time),
+>   `sudo .../seed.sh` (test data; `--info` prints the URLs and the random passwords), `sudo .../start.sh` after a reboot,
+>   `sudo .../destroy.sh` to remove everything. How to run the acceptance tests against it: see its README.
+> - `scripts/cubecos-test-target`: `python3 scripts/cubecos-test-target/fake_cubecos.py` (HTTPS on 127.0.0.1:18443, test CA
+>   at `GET /_test/ca.pem`), `scripts/cubecos-test-target/selftest.sh`; `GET /_test/write_calls` must stay at 0 after any jt-ipam run.
+
+- [ ] Add a connection with a password (user, user domain, project, project domain) and one with an application
+  credential (ID and secret); the secret and CA certificate are never returned (`has_secret` / `has_ca_cert`), an empty
+  secret on edit keeps it, "Clear" removes the CA certificate. A URL with credentials, a query or a fragment is rejected (422).
+- [ ] **Test** lists Keystone, Nova, Neutron (and CubeCOS for product CubeCOS) with reachability, plus visibility: all
+  projects, VM host, port binding host, Nova microversion, visible projects. Wrong password → `openstack_auth_failed` in the
+  current language; an unreachable host shows the transport reason.
+- [ ] **Reader account** (`reader` role only): the test says all projects are not allowed and the VM host is hidden; sync
+  reads only the token's project without reporting a sync error, never removes VMs of other projects (a VM deleted
+  in the token's own project does go), and the VM list node column is empty (unknown, not guessed).
+- [ ] **Admin account**: Sync now runs as a background task (a second click while it runs returns the same task);
+  Advanced Modules → Virtualization (OpenStack) lists every project's VMs with node, state, vCPU, memory, project column and NICs;
+  a stopped VM is still listed. Pagination: more VMs than one page all arrive.
+- [ ] **Subnet mapping** tab: a CIDR that exists once in the cloud and once in jt-ipam (in scope) is mapped "Auto"; two
+  projects with the same CIDR stay "Pending", and so does a CIDR with two matching jt-ipam subnets. Mapping one by hand
+  (or "Not mapped") survives the next sync and appears in the audit log.
+- [ ] **IPAM**: only addresses in mapped subnets link to IP records (MAC and host name source `openstack`); a pending
+  subnet links nothing, even when an IP record with the same address exists elsewhere; with auto-create on, new addresses
+  are created only inside the mapped subnet. Dual stack: the VM's primary IP is the IPv4 one.
+- [ ] **Floating IPs**: shown with their port on the IP detail "OpenStack ports" card (VM, network, project); the floating
+  address itself is never linked as a guest IP; an unbound floating IP is not attached to anything.
+- [ ] **Deletion**: delete a VM → gone after the next complete sync; delete a port or subnet → it stays after one complete
+  sync and goes after the second. Break Neutron or Nova (403, timeout) during a sync → nothing is deleted and the error is shown.
+- [ ] **Live migration and rename** (DevStack target): the VM keeps one row, its node changes and the new name is reported.
+- [ ] **CubeCOS** (simulator): product CubeCOS lists the nodes in the "CubeCOS nodes" tab (role, management / provider /
+  storage IP, serial); a 401, redirect or HTML login page is `cubecos_auth_failed`; a CubeCOS failure keeps the previous node
+  list and does not fail the OpenStack part; the simulator records no write call.
+- [ ] Delete the connection: its VMs, ports, subnet mappings and host name reports are removed; the cluster record stays.
+- [ ] Non-admin with global read: the IP detail OpenStack card works for an IP they can read; `/api/v1/openstack-instances`
+  itself is admin only.
+- [ ] Field check on the first real cloud: compare a few VMs and ports with Horizon or `openstack server list --long`
+  (state, host, MAC, fixed IP, floating IP); for CubeCOS compare the node list with the CubeCOS UI.
 
 ## 7b2. MikroTik RouterOS integration (Admin → External integrations → MikroTik): **Beta**
 

@@ -164,7 +164,8 @@ for k in sorted(visible, key=lambda k: moves.get(k, (0, 0, 0))[2]):
 canvas = canvas.convert("RGB")
 canvas.save(OUT)
 s.sendall(enc("disconnect"))
-top = ",".join(f"{k}:{v}" for k, v in ops.most_common(6) if k != "__idle__")
+# 前 8 名：只列 6 名時 end 常被擠掉，看起來像「影像串流沒有結束」而誤判（2026-10-22）
+top = ",".join(f"{k}:{v}" for k, v in ops.most_common(8) if k != "__idle__")
 # 畫面上非黑像素的比例：全黑＝其實什麼都沒畫出來（verify 用它擋「有指令、沒內容」）
 # 用絕對像素數而不是百分比：黑底終端機只有幾行字，比例不到 1%，但那是正常畫面
 painted = sum(1 for p in canvas.getdata() if p != (0, 0, 0))

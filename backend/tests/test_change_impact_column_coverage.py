@@ -59,11 +59,13 @@ COVERED: set[tuple[str, str]] = {
     ("adguard_instances", "api_url"), ("dns_servers", "api_url"), ("dns_servers", "server_address"),
     ("esxi_instances", "api_url"), ("esxi_instances", "extra_api_urls"),
     ("hyperv_instances", "host"), ("hyperv_instances", "extra_hosts"),
+    ("openstack_instances", "auth_url"), ("openstack_instances", "cubecos_url"),
     ("proxmox_instances", "api_url"), ("proxmox_instances", "extra_api_urls"),
     ("fortigate_firewalls", "api_url"), ("opnsense_firewalls", "api_url"), ("paloalto_firewalls", "api_url"),
     ("pfsense_firewalls", "api_url"), ("mikrotik_routers", "api_url"),
     ("isoinsight_sources", "base_url"), ("kea_dhcp_servers", "api_url"), ("windows_dhcp_servers", "host"),
     ("technitium_dhcp_servers", "api_url"),
+    ("cert_push_targets", "api_url"), ("cert_push_targets", "verify_endpoint"),
     # Check Point：管理伺服器網址與它管的閘道位址（閘道才是發 DHCP、做 NAT 的那台）
     ("checkpoint_servers", "api_url"), ("checkpoint_gateways", "ipv4_address"),
     # Check Point 第二階段：閘道 Gaia API 的網址、閘道 DHCP 發給用戶端的預設閘道（adapters_net.dhcp）
@@ -104,6 +106,9 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("ip_hostname_reports", "hostname"): "回報給某筆 IP 記錄的主機名稱，跟著記錄走（以 ip_address_id 關聯）",
     ("ip_addresses", "hostname_source_pin"): "主機名稱來源的釘選設定（來源名稱），不是位址",
     ("checkpoint_gaia_targets", "gateway_uid"): "Check Point 閘道物件的 uid（對照第一階段同步回來的閘道），不是位址",
+    ("openstack_subnets", "cidr"): "鏡像：Neutron 子網路，每輪同步重抓；對應到的 jt-ipam 子網路（mapped_subnet_id）本身已在評估內",
+    ("openstack_subnets", "gateway_ip"): "鏡像：Neutron 子網路的閘道（虛擬路由器的介面），每輪同步重抓；不是 jt-ipam 設定裡的引用",
+    ("openstack_ports", "binding_host"): "觀察值：Neutron port binding 的運算節點名稱，每輪同步重抓（VM 的位址走 vm_interfaces）",
     ("contacts", "address"): "郵寄地址",
     ("customers", "address"): "郵寄地址",
     ("locations", "address"): "郵寄地址",

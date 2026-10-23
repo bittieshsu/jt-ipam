@@ -233,3 +233,55 @@ export async function getCertAgentStatus(): Promise<{ agents: CertAgentStatus[] 
   const { data } = await apiClient.get("/api/v1/cert-agents/status");
   return data;
 }
+
+// ── 憑證推送目標（0227）：伺服器主動把憑證推到防火牆 ──
+export type CertPushKind = "fortigate" | "opnsense" | "paloalto" | "pfsense";
+export interface CertPushStep { step: string; ok: boolean; code?: string; detail?: string }
+export interface CertPushTarget {
+  id: string; name: string; enabled: boolean; kind: CertPushKind;
+  certificate_id: string; certificate_name: string | null;
+  api_url: string; verify_tls: boolean; options: Record<string, any>;
+  verify_endpoint: string | null; auto_push: boolean; has_secret: boolean;
+  last_push_at: string | null; last_status: "ok" | "unverified" | "error" | "rolled_back" | null;
+  last_error: string | null; last_fingerprint: string | null; last_steps: CertPushStep[];
+  current_fingerprint: string | null; up_to_date: boolean;
+}
+export interface CertPushTargetIn {
+  name?: string; certificate_id?: string; kind?: CertPushKind; api_url?: string; verify_tls?: boolean;
+  options?: Record<string, any>; verify_endpoint?: string | null; auto_push?: boolean; enabled?: boolean;
+  secret?: { api_key: string; api_secret?: string } | null;
+}
+export async function listCertPushTargets(): Promise<CertPushTarget[]> {
+  const { data } = await apiClient.get<{ items: CertPushTarget[] }>("/api/v1/cert-push-targets");
+  return data.items;
+}
+export async function createCertPushTarget(body: CertPushTargetIn): Promise<CertPushTarget> {
+  const { data } = await apiClient.post<CertPushTarget>("/api/v1/cert-push-targets", body);
+  return data;
+}
+export async function updateCertPushTarget(id: string, body: CertPushTargetIn): Promise<CertPushTarget> {
+  const { data } = await apiClient.patch<CertPushTarget>(`/api/v1/cert-push-targets/${id}`, body);
+  return data;
+}
+export async function deleteCertPushTarget(id: string): Promise<void> {
+  await apiClient.delete(`/api/v1/cert-push-targets/${id}`);
+}
+export async function pushCertNow(id: string): Promise<{ task_id: string }> {
+  const { data } = await apiClient.post<{ task_id: string }>(`/api/v1/cert-push-targets/${id}/push`);
+  return data;
+}
+export async function listPushDeviceCerts(id: string): Promise<{ id: string; name: string; subject: string }[]> {
+  const { data } = await apiClient.get<{ items: { id: string; name: string; subject: string }[] }>(
+    `/api/v1/cert-push-targets/${id}/device-certs`);
+  return data.items;
+}
+
+/** 還沒存檔就讀設備上的憑證：用表單上的帳密；編輯時帳密留空就帶 target_id 用已存的（10-22） */
+export async function previewPushDeviceCerts(body: {
+  kind: CertPushKind; api_url: string; verify_tls: boolean;
+  secret?: { api_key: string; api_secret: string } | null; target_id?: string | null;
+}): Promise<{ id: string; name: string; subject: string }[]> {
+  const { data } = await apiClient.post<{ items: { id: string; name: string; subject: string }[] }>(
+    "/api/v1/cert-push-targets/device-certs/preview", body);
+  return data.items;
+}

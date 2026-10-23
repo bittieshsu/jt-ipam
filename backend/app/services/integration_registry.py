@@ -28,6 +28,7 @@ INTEGRATIONS: tuple[tuple[str, str, str, str], ...] = (
     ("proxmox", "Proxmox VE", "app.models.virt", "ProxmoxInstance"),
     ("esxi", "VMware", "app.models.esxi", "ESXiInstance"),
     ("hyperv", "Hyper-V", "app.models.hyperv", "HyperVInstance"),
+    ("openstack", "OpenStack", "app.models.openstack", "OpenStackInstance"),
     ("opnsense", "OPNsense", "app.models.firewall", "OPNsenseFirewall"),
     ("pfsense", "pfSense", "app.models.pfsense", "PfSenseFirewall"),
     ("fortigate", "FortiGate", "app.models.fortigate", "FortiGateFirewall"),
@@ -50,11 +51,26 @@ LAST_SUCCESS_FIELDS = ("last_sync_at", "agent_last_seen_at", "last_report_at", "
 
 #: 沒有設定同步間隔的整合，最後同步超過這麼久算「逾時」
 DEFAULT_STALE_AFTER = timedelta(hours=2)
+#: jt-ipam-sync.timer 的週期（OnUnitActiveSec=5min）
+SCHEDULER_PERIOD_SECONDS = 300
 
 
 def models() -> Iterator[tuple[str, str, Any]]:
     for kind, label, mod, cls in INTEGRATIONS:
         yield kind, label, getattr(importlib.import_module(mod), cls)
+
+
+def display_name(row: Any, label: str) -> str:
+    """實例的顯示名稱；名稱是空的就用連線位址的主機名稱 —— 只顯示產品名時兩台分不出來（10-22，兩個「Proxmox VE」）。"""
+    name = str(getattr(row, "name", "") or "").strip()
+    if name:
+        return name
+    from urllib.parse import urlsplit
+    for attr in ("api_url", "base_url", "host", "hbbs_host", "auth_url"):
+        raw = str(getattr(row, attr, "") or "").strip()
+        if raw:
+            return urlsplit(raw if "://" in raw else f"//{raw}").hostname or raw
+    return label
 
 
 def last_success(row: Any) -> datetime | None:
@@ -72,7 +88,9 @@ def state_of(row: Any, *, now: datetime) -> str:
     if last is None:
         return "never"
     interval = getattr(row, "sync_interval_seconds", None)
-    limit = timedelta(seconds=int(interval) * 3) if interval else DEFAULT_STALE_AFTER
+    # 同步排程每 SCHEDULER_PERIOD 跑一輪：設得比它短的整合實際也只能每輪一次，門檻以兩者較大的算三輪
+    # （10-23 戰情室 DNS 在「正常」與「逾時」之間跳）
+    limit = timedelta(seconds=max(int(interval), SCHEDULER_PERIOD_SECONDS) * 3) if interval else DEFAULT_STALE_AFTER
     return "stale" if now - last > limit else "ok"
 
 
@@ -84,7 +102,7 @@ async def instances(session: AsyncSession, *, now: datetime | None = None) -> li
         for row in (await session.execute(select(model))).scalars().all():
             out.append({
                 "kind": kind, "label": label, "id": str(row.id),
-                "name": str(getattr(row, "name", "") or label),
+                "name": display_name(row, label),
                 "state": state_of(row, now=now),
                 "last_sync_at": last_success(row),
                 "last_error": (str(getattr(row, "last_error", "") or "")[:200]) or None,

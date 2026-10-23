@@ -66,6 +66,8 @@ class VMRead(StrictModel):
     is_template: bool
     # 客體作業系統（Hyper-V 的 KVP、SCVMM；0222）
     os_name: str | None = None
+    # CubeCOS／OpenStack 的 project 名稱（同步時寫在說明「project: <名稱>」；其他平台是 null）
+    project: str | None = None
     # 從 VMInterface 帶上來（list_vms 批次填）
     ips: list[str] = []
     macs: list[str] = []
@@ -94,7 +96,16 @@ class VMInterfaceRead(StrictModel):
         return None if v is None else str(v)
 
 
+def _host_name(url: str) -> str:
+    """API 網址主機名稱的第一段（pve-a.example.net → pve-a；IP 就是整個 IP）。"""
+    from urllib.parse import urlsplit
+    host = urlsplit(url).hostname or url
+    return host if host.replace(".", "").isdigit() else host.split(".")[0]
+
+
 class ProxmoxInstanceCreate(StrictModel):
+    #: 顯示名稱（0228）；留空＝API 網址主機名稱的第一段
+    name: Annotated[str | None, Field(max_length=128)] = None
     cluster_id: uuid.UUID | None = None   # 留空 → 同步時以 PVE 叢集名稱自動建立/指派
     api_url: HttpUrl
     extra_api_urls: list[HttpUrl] = []
@@ -110,6 +121,7 @@ class ProxmoxInstanceCreate(StrictModel):
 
 
 class ProxmoxInstanceUpdate(StrictModel):
+    name: Annotated[str | None, Field(max_length=128)] = None
     api_url: HttpUrl | None = None
     extra_api_urls: list[HttpUrl] | None = None
     auth_username: Annotated[str | None, Field(min_length=1, max_length=128)] = None
@@ -125,6 +137,7 @@ class ProxmoxInstanceUpdate(StrictModel):
 
 class ProxmoxInstanceRead(StrictModel):
     id: uuid.UUID
+    name: str | None = None
     cluster_id: uuid.UUID | None = None
     api_url: str
     extra_api_urls: list[str] = []
@@ -308,6 +321,14 @@ async def list_vms(
     )).scalars().all())
     total = int(await session.scalar(cstmt) or 0)
     items = [VMRead.model_validate(r) for r in rows]
+    # OpenStack 的 VM：project 從說明欄取（services/openstack 寫成「project: <名稱>」）
+    cids = {r.cluster_id for r in rows}
+    if cids:
+        os_clusters = set((await session.execute(select(VirtCluster.id).where(
+            VirtCluster.id.in_(cids), VirtCluster.type == "openstack"))).scalars())  # bounded: 一頁最多 500 台的叢集
+        for it, r in zip(items, rows, strict=True):
+            if r.cluster_id in os_clusters and (r.description or "").startswith("project: "):
+                it.project = (r.description or "")[len("project: "):] or None
 
     # 批次帶上每台 VM/CT 的網卡 IP / MAC / bridge
     vm_ids = [r.id for r in rows]
@@ -386,6 +407,7 @@ async def create_proxmox(
         if cluster is None:
             raise HTTPException(400, detail="Invalid cluster_id")
     obj = ProxmoxInstance(
+        name=(payload.name or "").strip() or _host_name(str(payload.api_url)),
         cluster_id=payload.cluster_id,
         api_url=str(payload.api_url).rstrip("/"),
         extra_api_urls=("\n".join(str(u).rstrip("/") for u in payload.extra_api_urls)
@@ -416,7 +438,7 @@ async def create_proxmox(
         actor_ip=request.client.host if request.client else None,
         actor_user_agent=request.headers.get("user-agent"),
         object_type="proxmox_instance", object_id=str(obj.id), action="create",
-        diff={"api_url": obj.api_url, "auth_username": obj.auth_username,
+        diff={"name": obj.name, "api_url": obj.api_url, "auth_username": obj.auth_username,
               "auth_token_id": obj.auth_token_id},
         request_id=getattr(request.state, "request_id", None),
     )
@@ -432,7 +454,7 @@ async def list_proxmox(
     page: int = Query(1, ge=1, le=10_000), page_size: int = Query(50, ge=1, le=500),
 ) -> Paginated[ProxmoxInstanceRead]:
     rows = list((await session.execute(
-        select(ProxmoxInstance).order_by(ProxmoxInstance.api_url)
+        select(ProxmoxInstance).order_by(ProxmoxInstance.name, ProxmoxInstance.api_url)
         .offset((page - 1) * page_size).limit(page_size)
     )).scalars().all())
     total = int(await session.scalar(select(func.count()).select_from(ProxmoxInstance)) or 0)
@@ -456,6 +478,8 @@ async def update_proxmox(
     secret = data.pop("token_secret", None)
     if "api_url" in data and data["api_url"] is not None:
         obj.api_url = str(data["api_url"]).rstrip("/")
+    if "name" in data:
+        obj.name = (data["name"] or "").strip() or _host_name(obj.api_url)
     if "extra_api_urls" in data:
         urls = data["extra_api_urls"] or []
         obj.extra_api_urls = "\n".join(str(u).rstrip("/") for u in urls) or None

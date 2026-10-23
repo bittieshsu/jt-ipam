@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     auth,
     bmc_console,
     cert_agents,
+    cert_push,
     certificates,
     checkpoint,
     checkpoint_gaia,
@@ -51,6 +52,7 @@ from app.api.v1.endpoints import (
     notifications,
     novnc_console,
     ocs,
+    openstack,
     oui,
     paloalto,
     pfsense,
@@ -160,6 +162,8 @@ api_v1_router.include_router(ai_audit.router)
 api_v1_router.include_router(investigate.router)
 api_v1_router.include_router(esxi.router)
 api_v1_router.include_router(hyperv.router)
+api_v1_router.include_router(openstack.router)
+api_v1_router.include_router(openstack.read_router)
 api_v1_router.include_router(warroom.router)
 api_v1_router.include_router(warroom.admin_router)
 api_v1_router.include_router(import_external.router)
@@ -167,6 +171,7 @@ api_v1_router.include_router(scan_agents.router)
 api_v1_router.include_router(scan_agent_relay.router)
 api_v1_router.include_router(certificates.router)
 api_v1_router.include_router(cert_agents.router)
+api_v1_router.include_router(cert_push.router)
 api_v1_router.include_router(dns.router)
 api_v1_router.include_router(librenms.router)
 # 外部 DNS 解析（/system/dns-resolvers 與 /anomalies/attack-surface/external-dns）

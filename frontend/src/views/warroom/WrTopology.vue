@@ -159,7 +159,8 @@ const moreLinks = computed(() => Math.max((f.value.links?.length ?? 0) - LINKS_S
 </template>
 
 <style scoped>
-.tp { display: grid; grid-template-columns: minmax(0, 1fr) 600px; gap: 44px; height: 100%; }
+/* 列高固定為可用高度（minmax(0, …)）：某一區內容多時曾把整列撐高，另一區的下半部被推出畫面（10-22） */
+.tp { display: grid; grid-template-columns: minmax(0, 1fr) 600px; grid-template-rows: minmax(0, 1fr); gap: 44px; height: 100%; }
 .tp-left { position: relative; min-width: 0; }
 .tp-canvas { position: relative; height: 100%; }
 .tp-lines { position: absolute; left: 0; top: 0; }

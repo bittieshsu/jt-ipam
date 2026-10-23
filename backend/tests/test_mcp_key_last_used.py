@@ -62,5 +62,6 @@ async def test_usage_is_bound_to_a_random_key_id_not_derived_from_the_key(client
     sc._cache.clear()
     cfg = await sc.get_llm_config(db_session)
     assert first and cfg.mcp_api_key_id and cfg.mcp_api_key_id != first
-    import hashlib
-    assert hashlib.sha256(cfg.mcp_api_key.encode()).hexdigest()[:16] != cfg.mcp_api_key_id
+    # 編號是重產時另外產生的隨機值：不出現在金鑰裡（測試本身也不對金鑰做雜湊，CodeQL #57）
+    assert cfg.mcp_api_key_id not in cfg.mcp_api_key
+    assert len(cfg.mcp_api_key_id) == 16 and int(cfg.mcp_api_key_id, 16) >= 0

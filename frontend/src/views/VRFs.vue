@@ -68,7 +68,7 @@ async function submit() {
     const payload = {
       name: form.value.name,
       rd: form.value.rd || undefined,
-      description: form.value.description || undefined,
+      description: form.value.description ?? "",
       allow_overlap: form.value.allow_overlap,
     };
     if (editing.value) await updateVRF(editing.value.id, payload);

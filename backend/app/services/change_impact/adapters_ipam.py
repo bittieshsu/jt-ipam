@@ -226,6 +226,9 @@ _INTEGRATION_URLS: tuple[tuple[str, str, str, str], ...] = (
     ("app.models.virt", "ProxmoxInstance", "api_url", "proxmox"),
     ("app.models.esxi", "ESXiInstance", "api_url", "esxi"),
     ("app.models.hyperv", "HyperVInstance", "host", "hyperv"),
+    # OpenStack：Keystone 端點（Nova／Neutron 的位址來自它的服務目錄）；CubeCOS API（沒填時就是 Keystone 主機）
+    ("app.models.openstack", "OpenStackInstance", "auth_url", "openstack"),
+    ("app.models.openstack", "OpenStackInstance", "cubecos_url", "openstack"),
     ("app.models.zabbix", "ZabbixInstance", "api_url", "zabbix"),
     ("app.models.wazuh", "WazuhInstance", "api_url", "wazuh"),
     ("app.models.dns", "DNSServer", "api_url", "dns_server"),
@@ -242,6 +245,9 @@ _INTEGRATION_URLS: tuple[tuple[str, str, str, str], ...] = (
     ("app.models.ocs", "OcsServer", "db_host", "ocs"),
     ("app.models.adguard", "AdGuardInstance", "api_url", "adguard"),
     ("app.models.isoinsight", "IsoInsightSource", "base_url", "isoinsight"),
+    # 憑證推送目標（0227）：jt-ipam 連這個位址把憑證推到防火牆；確認位址另外列
+    ("app.models.cert_push_target", "CertPushTarget", "api_url", "cert_push"),
+    ("app.models.cert_push_target", "CertPushTarget", "verify_endpoint", "cert_push"),
     # 叢集的其他節點：換行或逗號分隔
     ("app.models.virt", "ProxmoxInstance", "extra_api_urls", "proxmox"),
     ("app.models.esxi", "ESXiInstance", "extra_api_urls", "esxi"),

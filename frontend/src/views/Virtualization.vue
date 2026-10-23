@@ -25,6 +25,7 @@ import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
 import { useRoute, useRouter } from "vue-router";
 import { useTablePagination } from "@/composables/useTablePagination";
+import { vmProject } from "@/utils/virt";
 import { apiClient, apiErrMsg } from "@/api/client";
 
 const { t } = useI18n();
@@ -49,14 +50,15 @@ const msg = useMessage();
 const tab = ref<"clusters" | "vms" | "pvefw" | "proxmox">(
   route.name === "virt_admin" ? "proxmox" : (route.query.vm ? "vms" : "clusters"));
 
-/** 這一頁顯示哪個平台。虛擬化拆成 PVE／VMware／Hyper-V 三個選單項，同一個元件、不同 props。
+/** 這一頁顯示哪個平台。虛擬化拆成 PVE／VMware／Hyper-V／OpenStack 四個選單項，同一個元件、不同 props。
  *  不給就顯示全部（管理區的 virt-admin 走這條）。 */
-type Platform = "proxmox" | "vmware" | "hyperv";
+type Platform = "proxmox" | "vmware" | "hyperv" | "openstack";
 //  type：virt_clusters.type 的值（Hyper-V 是 "hyper-v"，資料表 CHECK 早就預留）
 const PLATFORMS: Record<Platform, { type: string; route: string; nav: string }> = {
   proxmox: { type: "proxmox", route: "virt", nav: "nav.virt_pve" },
   vmware: { type: "vmware", route: "virt_vmware", nav: "nav.virt_vmware" },
   hyperv: { type: "hyper-v", route: "virt_hyperv", nav: "nav.virt_hyperv" },
+  openstack: { type: "openstack", route: "virt_openstack", nav: "nav.virt_openstack" },
 };
 const props = defineProps<{ platform?: Platform }>();
 
@@ -70,12 +72,12 @@ const clusters = computed(() => (props.platform
   ? allClusters.value.filter((c) => c.type === PLATFORMS[props.platform!].type)
   : allClusters.value));
 const vms = computed(() => {
-  if (!props.platform) return allVms.value;
-  const ids = new Set(clusters.value.map((c) => c.id));
-  return allVms.value.filter((v) => ids.has(v.cluster_id));
+  const ids = props.platform ? new Set(clusters.value.map((c) => c.id)) : null;
+  // project 先算好放進列裡：快速篩選與排序看的是列上的欄位
+  return allVms.value.filter((v) => !ids || ids.has(v.cluster_id)).map((v) => ({ ...v, project: vmProject(v) }));
 });
 
-// 別的平台有 VM —— 把「空白頁」變成「你要的東西在另一頁」（三個平台時指向 VM 最多的那個）
+// 別的平台有 VM —— 把「空白頁」變成「你要的東西在另一頁」（多個平台時指向 VM 最多的那個）
 const otherPlatform = computed<{ key: Platform; count: number } | null>(() => {
   if (!props.platform) return null;
   let best: { key: Platform; count: number } | null = null;
@@ -285,12 +287,12 @@ async function submitCluster() {
     if (editingClusterId.value) {
       await Virt.updateCluster(editingClusterId.value, {
         name: clusterForm.value.name.trim(),
-        description: clusterForm.value.description || undefined,
+        description: clusterForm.value.description ?? "",
         customer_id: clusterForm.value.customer_id ?? null,
       });
     } else {
       await Virt.createCluster({ name: clusterForm.value.name.trim(), type: "proxmox",
-        description: clusterForm.value.description || undefined,
+        description: clusterForm.value.description ?? "",
         customer_id: clusterForm.value.customer_id ?? null });
     }
     showCluster.value = false;
@@ -305,6 +307,7 @@ const showPx = ref(false);
 const editingPxId = ref<string | null>(null);  // null = 新增/複製；有值 = 編輯
 function emptyPxForm() {
   return {
+    name: "",                            // 留空＝API 網址主機名稱的第一段（0228）
     cluster_id: null as string | null,   // 留空 → 同步時依 PVE 叢集名稱自動建立
     api_url: "https://", extra_urls: "",
     auth_username: "root@pam", auth_token_id: "", token_secret: "",
@@ -332,6 +335,7 @@ function openPxCreate() {
 }
 function fillFromRow(r: ProxmoxInstance) {
   pxForm.value = {
+    name: r.name ?? "",
     cluster_id: (r as any).cluster_id ?? clusters.value[0]?.id ?? null,
     api_url: r.api_url,
     extra_urls: (r.extra_api_urls ?? []).join("\n"),
@@ -354,6 +358,7 @@ function openPxClone(r: ProxmoxInstance) {
   editingPxId.value = null;       // 當新增處理
   fillFromRow(r);
   pxForm.value.api_url = "https://";   // 換手新節點 → 清空主 URL 讓使用者填
+  pxForm.value.name = "";
   showPx.value = true;
 }
 
@@ -367,7 +372,7 @@ async function submitPx() {
   try {
     if (editingPxId.value) {
       const payload: any = {
-        api_url: f.api_url, extra_api_urls: extra,
+        name: f.name.trim(), api_url: f.api_url, extra_api_urls: extra,
         auth_username: f.auth_username, auth_token_id: f.auth_token_id,
         verify_tls: f.verify_tls, enabled: f.enabled,
         sync_interval_seconds: f.sync_interval_seconds,
@@ -378,6 +383,7 @@ async function submitPx() {
       await Virt.updateProxmox(editingPxId.value, payload);
     } else {
       await Virt.createProxmox({
+        name: f.name.trim() || undefined,
         cluster_id: f.cluster_id ?? undefined, api_url: f.api_url, extra_api_urls: extra,
         auth_username: f.auth_username, auth_token_id: f.auth_token_id,
         token_secret: f.token_secret, verify_tls: f.verify_tls,
@@ -458,6 +464,10 @@ const vmCols = computed<DataTableColumns<any>>(() => autoSort([
     render: (r) => clusters.value.find((c) => c.id === r.cluster_id)?.name ?? "—",
   },
   { title: t("virt.node"), key: "node", render: (r) => r.node ?? "—" },
+  // OpenStack 專案（同步寫在說明「project: 名稱」）。欄位一律定義（欄位偏好的鍵才穩定），
+  // 其他平台的頁面在畫面上拿掉（見 vmVisibleCols）
+  { title: t("virt.project"), key: "project", minWidth: 120, ellipsis: { tooltip: true },
+    render: (r) => r.project ?? "—" },
   // 客體作業系統（Hyper-V 的 KVP、SCVMM；0222）
   { title: t("virt.os"), key: "os_name", minWidth: 140, ellipsis: { tooltip: true }, render: (r) => r.os_name ?? "—" },
   // 規格：三個平台的同步本來就有收，清單以前沒顯示（2026-10-21 客戶第一次接 Hyper-V 時發現）。
@@ -500,6 +510,7 @@ const vmCols = computed<DataTableColumns<any>>(() => autoSort([
   },
 ]));
 const proxmoxCols = computed<DataTableColumns<ProxmoxInstance>>(() => autoSort([
+  { title: t("cols.name"), key: "name", minWidth: 120, render: (r) => r.name || "—" },
   {
     title: "API URL", key: "api_url",
     render: (r) => h(NSpace, { size: 6, align: "center", wrapItem: false }, () => [
@@ -563,6 +574,12 @@ function useVirtPrefs(name: string, cols: typeof clusterCols,
 }
 const clusterP = useVirtPrefs("clusters", clusterCols, clusters);
 const vmP = useVirtPrefs("vms", vmCols, vms, ["legacy_vmid"]);
+// 「專案」只有 OpenStack 有：PVE／VMware／Hyper-V 的頁面不顯示、欄位選單也不列
+const hideProject = computed(() => !!props.platform && props.platform !== "openstack");
+const vmVisibleCols = computed(() => (hideProject.value
+  ? vmP.visibleCols.filter((c: any) => c.key !== "project") : vmP.visibleCols));
+const vmPickerItems = computed(() => (hideProject.value
+  ? vmP.items.filter((c: any) => c.key !== "project") : vmP.items));
 const proxmoxP = useVirtPrefs("proxmox", proxmoxCols, proxmox);
 // 防火牆分頁比照其他分頁：共用搜尋 / 欄位選擇 / 排序 / 匯出，不另做一套
 const fwP = useVirtPrefs("pvefw", fwCols as any, fwRows);
@@ -641,12 +658,12 @@ onMounted(() => {
           <n-button @click="refresh" :loading="loading">
             <template #icon><n-icon><RefreshIcon /></n-icon></template>{{ t("common.refresh") }}
           </n-button>
-          <ColumnPicker :all="vmP.items" :visible="vmP.visibleKeys"
+          <ColumnPicker :all="vmPickerItems" :visible="vmP.visibleKeys"
                         @update:visible="vmP.setVisible" @reset="vmP.reset"
                         :order="vmP.order" @update:order="vmP.setOrder" />
-          <ExportButton :columns="vmP.visibleCols" :rows="vmP.filtered" filename="virt-vms" :title="t('virt.vms')" />
+          <ExportButton :columns="vmVisibleCols" :rows="vmP.filtered" filename="virt-vms" :title="t('virt.vms')" />
         </n-space>
-        <n-data-table :columns="vmP.visibleCols" :data="vmP.filtered" :loading="loading" :bordered="false" :pagination="pg" :scroll-x="960" />
+        <n-data-table :columns="vmVisibleCols" :data="vmP.filtered" :loading="loading" :bordered="false" :pagination="pg" :scroll-x="960" />
       </n-tab-pane>
       <!-- PVE 防火牆：東西向／主機層分段。刻意不與「對外開放服務」混在一起 ——
            PVE 規則不代表對外可達，混談會製造假的曝險警訊 -->
@@ -738,6 +755,9 @@ onMounted(() => {
     <!-- 新增 / 編輯 Proxmox 連線 -->
     <n-modal v-model:show="showPx" preset="card" :title="pxModalTitle" style="width: 520px">
       <n-form label-placement="top">
+        <n-form-item :label="t('cols.name')">
+          <n-input v-model:value="pxForm.name" :placeholder="t('virt.name_ph')" data-testid="px-name" />
+        </n-form-item>
         <n-form-item v-if="!editingPxId && clusterOptions.length" :label="t('virt.cluster')">
           <n-select v-model:value="pxForm.cluster_id" :options="clusterOptions"
                     clearable :placeholder="t('virt.cluster_auto_ph')" />

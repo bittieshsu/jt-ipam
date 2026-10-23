@@ -28,7 +28,7 @@ EVENT_INTEGRATION = "integration.sync_failed"
 # 通知點了打不開，比沒有連結更糟（使用者會以為功能壞了）。
 _INTEGRATION_ROUTE = {
     "librenms": "/librenms", "wazuh": "/wazuh", "zabbix": "/zabbix",
-    "adguard": "/adguard", "proxmox": "/virt-admin", "esxi": "/esxi", "hyperv": "/hyperv",
+    "adguard": "/adguard", "proxmox": "/virt-admin", "esxi": "/esxi", "hyperv": "/hyperv", "openstack": "/openstack",
     "opnsense": "/firewall", "pfsense": "/pfsense", "fortigate": "/fortigate",
     "paloalto": "/paloalto", "checkpoint": "/checkpoint", "checkpoint_gaia": "/checkpoint",
     "mikrotik": "/mikrotik",
@@ -110,7 +110,7 @@ async def check_integration_health(
                 title=f"整合同步已恢復：{inst.name}（{kind}）",
                 title_key="notif.sync_ok", body_key="notif.sync_ok_body",
                 params={"name": inst.name, "kind": kind},
-                body="這個整合又同步成功了。",
+                body="先前的同步錯誤已排除，最近一次同步成功。",
                 link=_INTEGRATION_ROUTE.get(kind, "/dashboard"), severity="info")
     await prune_missing(session, prefix="integration:", alive=alive)
     return sent
@@ -175,7 +175,7 @@ async def check_agent_health(
                 title=f"代理已恢復回報：{ag.name}（{kind}）",
                 title_key="notif.agent_back", body_key="notif.agent_back_body",
                 params={"name": ag.name, "kind": kind},
-                body="這個代理又開始回報了。",
+                body="代理已恢復回報。",
                 link="/scan-agents" if kind == "scan" else "/certificates",
                 severity="info")
     await prune_missing(session, prefix="agent:", alive=alive)
@@ -219,6 +219,6 @@ async def check_system_health(
                 title=f"系統檢查已恢復：{getattr(c, 'title', c.key)}",
                 title_key="notif.selfcheck_ok", body_key="notif.selfcheck_ok_body",
                 params={"check": str(getattr(c, "title", c.key))},
-                body="這一項又通過了。", link="/doctor", severity="info")
+                body="此檢查項目已恢復通過。", link="/doctor", severity="info")
     await prune_missing(session, prefix="system:", alive=alive)
     return sent

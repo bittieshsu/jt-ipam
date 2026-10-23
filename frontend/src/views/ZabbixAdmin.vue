@@ -122,7 +122,7 @@ async function submit() {
     name: f.name, api_url: f.api_url,
     enabled: f.enabled, verify_tls: f.verify_tls,
     sync_interval_seconds: f.sync_interval_seconds,
-    description: f.description || undefined,
+    description: f.description ?? "",
     scope_subnet_ids: f.scope_subnet_ids,
   };
   if (f.authMode === "token") {

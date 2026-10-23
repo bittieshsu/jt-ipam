@@ -137,7 +137,7 @@ async def check_jump_host_keys(
             await _notify(
                 session, event=EVENT_JUMP_KEY,
                 title=f"跳板主機的金鑰恢復為釘選值：{jh.name}",
-                body="指紋又與釘選的一致了。", link="/jump-hosts", severity="info",
+                body="指紋已恢復與釘選值一致。", link="/jump-hosts", severity="info",
                 title_key="notif.jump_key_restored", body_key="notif.jump_key_restored_body",
                 params={"name": jh.name})
     await prune_missing(session, prefix="jumpkey:", alive=alive)
@@ -175,7 +175,7 @@ async def check_cert_sources(
             await _notify(
                 session, event=EVENT_CERT_FETCH,
                 title=f"憑證來源已恢復：{cert.name}",
-                body="又抓得到了。", link="/certificates", severity="info",
+                body="憑證已恢復可正常取得。", link="/certificates", severity="info",
                 title_key="notif.cert_fetch_ok", body_key="notif.cert_fetch_ok_body",
                 params={"name": cert.name})
     await prune_missing(session, prefix="certsrc:", alive=alive)

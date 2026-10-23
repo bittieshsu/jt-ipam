@@ -122,7 +122,7 @@ async function submit() {
     sync_addresses: form.value.sync_addresses,
     sync_vpn: form.value.sync_vpn,
     sync_interval_seconds: form.value.sync_interval_seconds,
-    description: form.value.description || undefined,
+    description: form.value.description ?? "",
     scope_subnet_ids: form.value.scope_subnet_ids,
   };
   if (ver) payload.api_version = ver;

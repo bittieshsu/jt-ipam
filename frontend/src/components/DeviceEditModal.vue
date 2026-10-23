@@ -236,7 +236,7 @@ async function submit() {
     const payload = {
       name: form.value.name, fqdn: form.value.fqdn || null, type: form.value.type,
       vendor: form.value.vendor || undefined, model: form.value.model || undefined,
-      serial: form.value.serial || undefined, description: form.value.description || undefined,
+      serial: form.value.serial || undefined, description: form.value.description ?? "",
       location_id: form.value.location_id, rack_id: form.value.rack_id,
       u_position: form.value.u_position, u_size: form.value.u_size,
       rack_face: form.value.rack_id ? form.value.rack_face : null,

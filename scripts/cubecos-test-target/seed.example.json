@@ -1,0 +1,200 @@
+{
+  "datacenter": {
+    "name": "fake-dc",
+    "virtual_ip": "192.0.2.10",
+    "is_ha_enabled": false,
+    "firmware_version": "CubeCOS 3.1.0 20260901-1200 TZ:+0800",
+    "firmware_updated_at": "2026-09-01T12:00:00+08:00",
+    "utc_time_zone": "+08:00",
+    "fixpack": {
+      "name": "",
+      "version": "",
+      "updatedAt": ""
+    },
+    "keycloak_port": 10443,
+    "redirect_path": "/home",
+    "api_port": 8082
+  },
+  "users": [
+    {
+      "name": "admin",
+      "password": "Fake-CubeCOS-Pass1"
+    }
+  ],
+  "token": {
+    "access_ttl": 7200,
+    "refresh_ttl": 1800
+  },
+  "nodes": [
+    {
+      "hostname": "os-ctrl-1",
+      "role": "control-converged",
+      "status": "up",
+      "management_ip": "192.0.2.11",
+      "provider_ip": "198.51.100.11",
+      "storage_ip": "10.0.0.11",
+      "serial_number": "FAKE-SN-0001",
+      "board_serial": "FAKE-BS-0001",
+      "cpu_spec": "QEMU Virtual CPU version 2.5+",
+      "is_virtual_ip_owner": true,
+      "is_gpu_enabled": false,
+      "uptime_seconds": 864000.25,
+      "firmware": {
+        "active": "CubeCOS 3.1.0 20260901-1200 TZ:+0800",
+        "inactive": ""
+      },
+      "vcpu": {
+        "totalCores": 32,
+        "usedCores": 8,
+        "usedPercent": 25,
+        "freeCores": 24,
+        "freePercent": 75
+      },
+      "memory": {
+        "totalMiB": 131072,
+        "usedMiB": 65536,
+        "usedPercent": 50,
+        "freeMiB": 65536,
+        "freePercent": 50
+      },
+      "storage": {
+        "totalMiB": 1048576,
+        "usedMiB": 262144,
+        "usedPercent": 25,
+        "freeMiB": 786432,
+        "freePercent": 75
+      },
+      "network_interfaces": [
+        {
+          "interface": "eth0",
+          "label": "eth0",
+          "busIdSlaves": "0000:00:03.0",
+          "driver": "virtio_net",
+          "state": "up",
+          "speed": "10000"
+        },
+        {
+          "interface": "eth1",
+          "label": "eth1",
+          "busIdSlaves": "0000:00:04.0",
+          "driver": "virtio_net",
+          "state": "up",
+          "speed": "10000"
+        }
+      ],
+      "ipmi": {
+        "isSupported": false,
+        "isConnected": false,
+        "ip": ""
+      }
+    },
+    {
+      "hostname": "os-compute-1",
+      "role": "compute",
+      "status": "up",
+      "management_ip": "192.0.2.21",
+      "provider_ip": "198.51.100.21",
+      "storage_ip": "10.0.0.21",
+      "serial_number": "FAKE-SN-0002",
+      "board_serial": "FAKE-BS-0002",
+      "cpu_spec": "QEMU Virtual CPU version 2.5+",
+      "is_virtual_ip_owner": false,
+      "is_gpu_enabled": false,
+      "uptime_seconds": 432000.5,
+      "firmware": {
+        "active": "CubeCOS 3.1.0 20260901-1200 TZ:+0800",
+        "inactive": ""
+      },
+      "vcpu": {
+        "totalCores": 64,
+        "usedCores": 16,
+        "usedPercent": 25,
+        "freeCores": 48,
+        "freePercent": 75
+      },
+      "memory": {
+        "totalMiB": 262144,
+        "usedMiB": 131072,
+        "usedPercent": 50,
+        "freeMiB": 131072,
+        "freePercent": 50
+      },
+      "storage": {
+        "totalMiB": 524288,
+        "usedMiB": 131072,
+        "usedPercent": 25,
+        "freeMiB": 393216,
+        "freePercent": 75
+      },
+      "network_interfaces": [
+        {
+          "interface": "eth0",
+          "label": "eth0",
+          "busIdSlaves": "0000:00:03.0",
+          "driver": "virtio_net",
+          "state": "up",
+          "speed": "10000"
+        }
+      ],
+      "ipmi": {
+        "isSupported": false,
+        "isConnected": false,
+        "ip": ""
+      }
+    },
+    {
+      "hostname": "os-compute-2",
+      "role": "compute",
+      "status": "up",
+      "management_ip": "192.0.2.22",
+      "provider_ip": "198.51.100.22",
+      "storage_ip": "10.0.0.22",
+      "serial_number": "FAKE-SN-0003",
+      "board_serial": "FAKE-BS-0003",
+      "cpu_spec": "QEMU Virtual CPU version 2.5+",
+      "is_virtual_ip_owner": false,
+      "is_gpu_enabled": false,
+      "uptime_seconds": 432001.75,
+      "firmware": {
+        "active": "CubeCOS 3.1.0 20260901-1200 TZ:+0800",
+        "inactive": ""
+      },
+      "vcpu": {
+        "totalCores": 64,
+        "usedCores": 0,
+        "usedPercent": 0,
+        "freeCores": 64,
+        "freePercent": 100
+      },
+      "memory": {
+        "totalMiB": 262144,
+        "usedMiB": 0,
+        "usedPercent": 0,
+        "freeMiB": 262144,
+        "freePercent": 100
+      },
+      "storage": {
+        "totalMiB": 524288,
+        "usedMiB": 0,
+        "usedPercent": 0,
+        "freeMiB": 524288,
+        "freePercent": 100
+      },
+      "network_interfaces": [
+        {
+          "interface": "eth0",
+          "label": "eth0",
+          "busIdSlaves": "0000:00:03.0",
+          "driver": "virtio_net",
+          "state": "up",
+          "speed": "10000"
+        }
+      ],
+      "ipmi": {
+        "isSupported": false,
+        "isConnected": false,
+        "ip": ""
+      }
+    }
+  ]
+}

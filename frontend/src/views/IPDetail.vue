@@ -6,6 +6,7 @@ import { NCard, NDescriptions, NDescriptionsItem, NSpin, NSpace, NTag, useMessag
 import { getAddress } from "@/api/addresses";
 import IPAddressEditModal from "@/components/IPAddressEditModal.vue";
 import UptimeBar from "@/components/UptimeBar.vue";
+import OpenStackPortsCard from "@/components/OpenStackPortsCard.vue";
 import { useScanProbes, probeLabel } from "@/api/scanProbes";
 import type { IPAddress } from "@/types";
 import { openInNewTab } from "@/utils/openInNewTab";
@@ -152,6 +153,9 @@ watch(() => route.params.id, (id) => { if (id) load(String(id)); });
       <n-card v-if="addr" size="small" :bordered="true">
         <UptimeBar :address-id="addr.id" :days="90" />
       </n-card>
+
+      <!-- OpenStack 網卡（Neutron port）：只有掛在 OpenStack 上的位址才會出現 -->
+      <OpenStackPortsCard v-if="addr" :address-id="addr.id" />
 
       <!-- 掃描項目（唯讀，由探測結果推導）；OS 已併入上方主要欄位表 -->
       <n-card v-if="addr && showScanSection" size="small" :bordered="true">

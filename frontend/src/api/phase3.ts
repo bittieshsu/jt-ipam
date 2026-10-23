@@ -140,7 +140,7 @@ export async function scanNowAgent(id: string): Promise<{ queued: boolean; eta_s
   return data;
 }
 export async function updateScanAgent(id: string, p: Partial<{
-  description: string; enabled: boolean; auto_create_ips: boolean;
+  name: string; description: string; enabled: boolean; auto_create_ips: boolean;
   enabled_probes: string[]; probe_intervals: Record<string, number>;
   relay_allowed: boolean; relay_max_sessions: number; relay_ports: string;
 }>): Promise<ScanAgent> {
@@ -153,6 +153,12 @@ export async function deleteScanAgent(id: string): Promise<void> {
 export async function getAgentSubnets(id: string): Promise<string[]> {
   const { data } = await apiClient.get<{ subnet_ids: string[] }>(`/api/v1/scan-agents/${id}/subnets`);
   return data.subnet_ids;
+}
+export interface AgentSubnetItem { id: string; cidr: string; description: string | null; scan_enabled: boolean }
+/** 這台代理負責的子網路（CIDR／說明／是否啟用掃描），給代理頁點子網路數字時彈出的清單 */
+export async function getAgentSubnetList(id: string): Promise<AgentSubnetItem[]> {
+  const { data } = await apiClient.get<{ subnets?: AgentSubnetItem[] }>(`/api/v1/scan-agents/${id}/subnets`);
+  return data.subnets ?? [];
 }
 export async function setAgentSubnets(id: string, subnetIds: string[]): Promise<string[]> {
   const { data } = await apiClient.put<{ subnet_ids: string[] }>(
@@ -489,9 +495,10 @@ export interface VirtualMachine { id: string; name: string; cluster_id: string |
   /** 平台沒回報 IP、同步時用網卡 MAC 比對到的 IPAM 位址 */
   ips_by_mac?: string[];
   os_name?: string | null; }
-export interface ProxmoxInstance { id: string; name: string; api_url: string; extra_api_urls: string[]; node: string | null; auth_username: string; auth_token_id: string; verify_tls: boolean; sync_interval_seconds: number; enabled: boolean; scope_subnet_ids?: string[] | null; last_sync_at: string | null; last_error: string | null; }
+export interface ProxmoxInstance { id: string; name: string | null; api_url: string; extra_api_urls: string[]; node: string | null; auth_username: string; auth_token_id: string; verify_tls: boolean; sync_interval_seconds: number; enabled: boolean; scope_subnet_ids?: string[] | null; last_sync_at: string | null; last_error: string | null; }
 
 export interface ProxmoxWrite {
+  name?: string;
   cluster_id?: string; api_url: string; extra_api_urls?: string[];
   auth_username: string; auth_token_id: string; token_secret?: string;
   verify_tls?: boolean; enabled?: boolean; sync_interval_seconds?: number;

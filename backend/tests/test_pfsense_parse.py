@@ -27,3 +27,15 @@ def test_valid_ip_rejects_alias_names():
     assert _valid_ip("10.20.30.40") == "10.20.30.40"
     assert _valid_ip("10.20.30.40/24") == "10.20.30.40"
     assert _valid_ip("2001:db8::5") == "2001:db8::5"
+
+
+def test_rest_api_package_missing_gets_a_plain_message() -> None:
+    """pfSense 升級會移除非官方套件：整個 /api/v2 變成 webConfigurator 的 404 HTML 頁（10-23 正式站台的一台 pfSense）。
+    錯誤要直接講「REST API 套件不在、要重裝」，不是貼一段 HTML。"""
+    from app.services.pfsense import _status_error
+    msg = _status_error("/api/v2/diagnostics/arp_table", 404, "text/html; charset=UTF-8", "<!DOCTYPE html><html lang=\"en\">")
+    assert "REST API" in msg
+    assert "<html" not in msg.lower()
+    # JSON 的 404（套件在，只是端點不存在）照舊帶原文
+    msg2 = _status_error("/api/v2/foo", 404, "application/json", '{"code":404,"message":"Endpoint not found"}')
+    assert "Endpoint not found" in msg2

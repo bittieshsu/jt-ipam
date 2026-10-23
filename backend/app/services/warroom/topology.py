@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sqlin import in_values
-from app.services.warroom.common import section
+from app.services.warroom.common import actionable_observation, section
 
 DEVICE_EDGE_KINDS = ("cable", "wireless", "l2", "l2_uplink")
 #: 網路關聯只畫網路設備（使用者 10-22：預設不要伺服器或一般裝置）；接在下面的終端只算數量
@@ -110,7 +110,7 @@ async def _anomalies_by_device(session: AsyncSession, ids: list[str]) -> dict[st
     rows = (await session.execute(
         select(IPAddress.device_id, AnomalyObservation.id)
         .join(AnomalyObservation, AnomalyObservation.ip == IPAddress.ip)
-        .where(AnomalyObservation.resolved_at.is_(None),
+        .where(AnomalyObservation.resolved_at.is_(None), actionable_observation(),
                in_values(IPAddress.device_id, [uuid.UUID(i) for i in ids])))).all()
     out: dict[str, set[Any]] = {}
     for did, oid in rows:

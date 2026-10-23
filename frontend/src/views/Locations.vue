@@ -132,7 +132,7 @@ async function submit() {
     const payload = {
       name: form.value.name,
       address: form.value.address || undefined,
-      description: form.value.description || undefined,
+      description: form.value.description ?? "",
       latitude: form.value.latitude,
       longitude: form.value.longitude,
       customer_id: form.value.customer_id ?? null,

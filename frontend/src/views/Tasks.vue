@@ -18,7 +18,7 @@ import ColumnPicker from "@/components/ColumnPicker.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { fmtDateTime } from "@/utils/datetime";
 import { taskKindLabel } from "@/utils/taskKind";
-import { aggregateCounts, formatSummary as fmtSummary, TEXT_SUMMARY_KINDS } from "@/utils/taskSummary";
+import { aggregateCounts, formatSummary as fmtSummary, summaryChips } from "@/utils/taskSummary";
 const { t, te } = useI18n();
 
 const { visibleKeys: tkVis, setVisible: tkSet, reset: tkReset,
@@ -181,11 +181,9 @@ const allHistoryCols = computed<DataTableColumns<BackgroundTask>>(() => autoSort
       if (r.status === "failed" && !r.error) {
         return h("span", { style: "color: var(--err-color, #e88080); font-size: 12px;" }, t("tasks.summary.failed_no_detail"));
       }
-      // 探測、代理回報與資料庫更新的結果不是「新增／更新幾筆」，四個數字永遠是 0（使用者回報）→ 直接顯示結論
-      if (!isErr && TEXT_SUMMARY_KINDS.has(r.kind)) {
-        const text = fmtSummary(r.kind, r.summary, t);
-        return h("span", { style: "font-size: 12px;", title: text, "data-testid": "task-summary-text" }, text);
-      }
+      // 探測、代理回報與資料庫更新的結果不是「新增／更新幾筆」（四個數字永遠是 0）→ 用它自己的標籤，
+      // 樣式與點開的說明跟其他作業一樣（10-23「風格請統一」；以前直接印一句話）
+      const chips = isErr ? null : summaryChips(r.kind, r.summary, t);
       const c = aggregateCounts(r.summary);
       const detailTxt = isErr
         ? r.error!
@@ -197,6 +195,11 @@ const allHistoryCols = computed<DataTableColumns<BackgroundTask>>(() => autoSort
 
       const trigger = isErr
         ? h("span", { style: "color: var(--err-color, #e88080); font-size: 12px; cursor: pointer;" }, t("tasks.summary.failed_click"))
+        : chips
+          ? h(NSpace, { size: 4, wrap: false, style: "cursor: pointer;", "data-testid": "task-summary-chips" }, () =>
+              chips.length ? chips.map((x) => h(NTag, { size: "small", type: x.type, bordered: false, style: { cursor: "pointer" } },
+                                                  () => x.label))
+                : [h("span", { style: "font-size: 12px; opacity: .6" }, "—")])
         : h(NSpace, { size: 4, wrap: false, style: "cursor: pointer;" }, () => [
             tag(t("tasks.summary.tag_add"), c.ins, "info"),
             tag(t("tasks.summary.tag_update"), c.upd, "warning"),

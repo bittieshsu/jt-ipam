@@ -24,6 +24,8 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { nextStep, pad2, pageStep, topicByNumber, topicStep, type Step } from "@/utils/warroom";
 import WrAnomalies from "./WrAnomalies.vue";
+import WrIco from "./WrIco.vue";
+import { WarnIcon } from "@/icons";
 import WrAssets from "./WrAssets.vue";
 import WrCapacity from "./WrCapacity.vue";
 import WrCollection from "./WrCollection.vue";
@@ -41,6 +43,14 @@ const step = ref<Step>({ key: "overview", page: 1 });
 const data = ref<PageData | null>(null);
 const fatal = ref<string | null>(null);           // 無法顯示（權杖無效、功能關閉）
 const offlineSince = ref<string | null>(null);    // 連不上：顯示的是這個時間的資料
+/** 資料逾時：連不上，或資料時間落後超過「三輪換頁且至少 3 分鐘」（每次換頁都會重抓，正常不會落後這麼多） */
+const dataStale = computed(() => {
+  if (offlineSince.value) return true;
+  const at = data.value?.data_at ? new Date(data.value.data_at).getTime() : NaN;
+  if (Number.isNaN(at)) return false;
+  const limit = Math.max(3 * (cfg.value?.dwell_seconds ?? 60), 180) * 1000;
+  return now.value.getTime() - at > limit;
+});
 const paused = ref(false);
 const dir = ref<"fwd" | "back">("fwd");            // 換頁動畫的方向
 const cycle = ref(0);                             // 每次重新計時加一：讓進度線從頭跑
@@ -308,7 +318,9 @@ const legend = computed<[string, string][]>(() => {
           <span>{{ scopeText }}</span><span class="wr-vsep" />
           <span class="wr-clock">{{ hm(now) }}</span>
           <template v-if="data"><span class="wr-vsep" />
-            <span :class="{ 'wr-off': offlineSince }">
+            <!-- 資料太久沒更新（連不上或伺服器回的是舊資料）：紅字＋警示圖示（10-23 使用者要求） -->
+            <span :class="{ 'wr-off': dataStale }" data-testid="wr-data-at" :data-stale="dataStale ? '1' : '0'">
+              <WrIco v-if="dataStale" :icon="WarnIcon" />
               {{ offlineSince ? t("warroom.offline_at", { time: hm(offlineSince) }) : t("warroom.data_at", { time: hm(data.data_at) }) }}
             </span>
           </template>
@@ -470,6 +482,19 @@ const legend = computed<[string, string][]>(() => {
 </style>
 
 <style>
+/* 戰情室圖示（wrIcons.ts）：跟文字同高、顏色跟文字，線條細一點才不搶數字 */
+.wr .wr-ico { width: .9em; height: .9em; flex: none; stroke-width: 1.6; vertical-align: -0.12em; margin-right: .35em; }
+.wr .wr-h2 .wr-ico { color: var(--wr-muted); margin-right: -6px; }
+.wr .wr-ico + * { min-width: 0; }
+/* 判斷線索（未授權 IP 等）：一行小字、最多兩行，外部回報的文字只當純文字 */
+/* 判斷線索（WrHints.vue）：逐項圖示＋文字，項目間留空不加分隔點；最多兩排，超過的整項收起 */
+.wr .wr-hints { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 20px; line-height: 1.3; color: var(--wr-muted);
+  max-height: calc(2 * 1.3em + 6px); overflow: hidden; }
+.wr .wr-hint { display: inline-flex; align-items: center; white-space: nowrap; min-width: 0; max-width: 100%; }
+.wr .wr-hint .wr-ico { color: var(--wr-outline); margin-right: .4em; flex: none; }
+.wr .wr-hint__t { overflow: hidden; text-overflow: ellipsis; }
+.wr .wr-hint--strong { color: var(--wr-ink); font-weight: 600; }
+.wr .wr-hint--mono .wr-hint__t { font-family: var(--wr-num); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
 /* 同主題換資料頁（paged.ts）：只有分頁的那一區上下換，方向跟上下鍵一致 */
 .wr .wr-pg-fwd-leave-active, .wr .wr-pg-back-leave-active { transition: opacity .18s ease-in, transform .18s ease-in; }
 .wr .wr-pg-fwd-enter-active, .wr .wr-pg-back-enter-active { transition: opacity .4s ease-out, transform .4s cubic-bezier(.2, .7, .2, 1); }

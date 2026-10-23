@@ -147,7 +147,7 @@ test("ISOinsight：新增、測試連線、（有測試設備時）預覽與同�
     await page.goto("/tasks");
     await page.locator(".n-tabs-tab").filter({ hasText: "歷史" }).click();
     await expect(page.locator("body")).toContainText(/isoinsight\.sync/);
-    await expect(page.getByTestId("task-summary-text").filter({ hasText: /取得 \d+/ }).first()).toBeVisible();
+    await expect(page.getByTestId("task-summary-chips").filter({ hasText: /取得 \d+/ }).first()).toBeVisible();
     await shot(page, "08-tasks");
     await page.goto("/isoinsight");
   }

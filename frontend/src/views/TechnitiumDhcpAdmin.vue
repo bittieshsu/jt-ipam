@@ -98,7 +98,7 @@ async function submit() {
   const payload: TechnitiumDhcpWrite = {
     name: f.name.trim(), api_url: f.api_url.trim(), verify_tls: f.verify_tls, enabled: f.enabled,
     sync_scopes: f.sync_scopes, sync_leases: f.sync_leases, sync_interval_seconds: f.sync_interval_seconds,
-    description: f.description || undefined, scope_subnet_ids: f.scope_subnet_ids,
+    description: f.description ?? "", scope_subnet_ids: f.scope_subnet_ids,
   };
   if (f.token.trim()) payload.token = f.token.trim();
   try {

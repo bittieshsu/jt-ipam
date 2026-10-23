@@ -319,7 +319,7 @@ const aggregated = computed<AggCell[] | null>(() => {
 // 但要能一眼認出「這不是有人登記的」—— 它一旦進了 IPAM 就不會再被「未授權 IP」
 // 偵測列出來，等於私接的機器會安靜地變成正式紀錄。清單上是紫色 icon，格子圖是半格紫。
 // 來源清單要跟 IpRoleTags 一致：以前少了 librenms_arp，清單有標記、格子圖卻沒有。
-const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "hyperv", "scanner", "librenms_arp", "snmp_arp"];
+const AUTO_SOURCES = ["opnsense", "pfsense", "proxmox", "vmware", "hyperv", "openstack", "scanner", "librenms_arp", "snmp_arp"];
 function isAutoAdded(a: IPAddress | null): boolean {
   return !!a && AUTO_SOURCES.includes(String((a as any).discovery_source ?? ""));
 }

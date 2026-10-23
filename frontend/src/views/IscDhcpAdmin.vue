@@ -119,7 +119,7 @@ async function submit() {
   const payload: IscDhcpWrite = {
     name: f.name, agent_id: f.agent_id, enabled: f.enabled, sync_scopes: f.sync_scopes,
     sync_leases: f.sync_leases, report_interval_seconds: f.report_interval_seconds,
-    description: f.description || undefined, scope_subnet_ids: f.scope_subnet_ids,
+    description: f.description ?? "", scope_subnet_ids: f.scope_subnet_ids,
   };
   try {
     if (editing.value) await updateIsc(editing.value.id, payload);

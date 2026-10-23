@@ -163,7 +163,7 @@ async function submitVlan() {
     if (editingVLAN.value) {
       await updateVLAN(editingVLAN.value.id, {
         name: vlanForm.value.name,
-        description: vlanForm.value.description || undefined,
+        description: vlanForm.value.description ?? "",
         customer_id: vlanForm.value.customer_id ?? null,
         section_id: vlanForm.value.section_id ?? null,
       });
@@ -172,7 +172,7 @@ async function submitVlan() {
         domain_id: vlanForm.value.domain_id,
         number: vlanForm.value.number,
         name: vlanForm.value.name,
-        description: vlanForm.value.description || undefined,
+        description: vlanForm.value.description ?? "",
         customer_id: vlanForm.value.customer_id ?? null,
         section_id: vlanForm.value.section_id ?? null,
       });
@@ -201,7 +201,7 @@ async function submitDom() {
     if (editingDom.value) {
       await updateVLANDomain(editingDom.value.id, {
         name: domForm.value.name,
-        description: domForm.value.description || undefined,
+        description: domForm.value.description ?? "",
       });
     } else {
       await createVLANDomain(domForm.value.name, domForm.value.description || undefined);

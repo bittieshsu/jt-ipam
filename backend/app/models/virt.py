@@ -52,7 +52,7 @@ class VirtCluster(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint(
-            "type IN ('proxmox','vmware','hyper-v','kvm','xenserver','other')",
+            "type IN ('proxmox','vmware','hyper-v','kvm','xenserver','openstack','other')",
             name="ck_virt_clusters_type_valid",
         ),
     )
@@ -147,6 +147,8 @@ class ProxmoxInstance(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=True,   # 同步時依 PVE 叢集名稱自動指派
         index=True,
     )
+    #: 顯示名稱（0228；以前沒有，整合清單只能顯示「Proxmox VE」分不出哪一台）
+    name: Mapped[str | None] = mapped_column(String(128))
     api_url: Mapped[str] = mapped_column(Text, nullable=False)
     # 同一 cluster 其他節點的 API URL（換行 / 逗號分隔），主節點故障時自動換手
     extra_api_urls: Mapped[str | None] = mapped_column(Text)

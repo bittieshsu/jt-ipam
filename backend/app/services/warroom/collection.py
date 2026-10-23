@@ -1,9 +1,9 @@
-"""07 採集健康：掃描代理（每頁四台）、整合來源、最近一次備份。
+"""07 採集健康：掃描代理（每頁四台）、整合來源（最近一次備份 10-22 依使用者要求拿掉）。
 
 - 條帶是最近 CYCLES 輪（scan_agent_cycles，保留 7 天）：一格一輪，值是耗時／週期比（≥0.9 超載、≥0.5 忙碌，
   與負載面板同一個門檻）。少於 CYCLES 輪時前面補「無資料」格，不畫成正常
 - 逾時（超過 STALE_AFTER 沒回報）的代理：條帶照實顯示最後幾輪，但標「資料逾時」，不顯示像是即時的執行時間
-- 掃描代理、整合狀態、備份都是管理員限定的資料（各自的管理頁也是）：非管理員回 forbidden
+- 掃描代理、整合狀態都是管理員限定的資料（各自的管理頁也是）：非管理員回 forbidden
 """
 
 from __future__ import annotations
@@ -88,25 +88,13 @@ async def _integrations(session: AsyncSession, now: datetime) -> dict[str, Any]:
     return section("ok" if rows else "empty", items=rows[:MAX_SOURCES], total=len(rows), counts=counts)
 
 
-def _backup() -> dict[str, Any]:
-    from app.services.self_check import BACKUP_DIR, _parse_kv
-
-    try:
-        st = _parse_kv((BACKUP_DIR / "last-run").read_text(encoding="utf-8"))
-    except OSError:
-        return section("empty")
-    return section("ok", status=st.get("status") or None, finished_at=st.get("finished_at") or None,
-                   last_success_at=st.get("last_success_at") or None)
-
-
 async def build(session: AsyncSession, *, user: Any, cfg: dict[str, Any], page: int = 1,
                 now: datetime | None = None) -> dict[str, Any]:
     now = now or datetime.now(UTC)
     from app.services.warroom.common import full_access
     if not await full_access(session, user):
         return {"key": "collection", "data_at": now.isoformat(), "page": 1, "pages": 1,
-                "metrics": None, "agents": section("forbidden"), "integrations": section("forbidden"),
-                "backup": section("forbidden")}
+                "metrics": None, "agents": section("forbidden"), "integrations": section("forbidden")}
     agents, counts = await _agents(session, page, now)
     integ = await _integrations(session, now)
     return {
@@ -115,5 +103,5 @@ async def build(session: AsyncSession, *, user: Any, cfg: dict[str, Any], page: 
         "metrics": {"agents_ok": counts["ok"] + counts["busy"], "agents_stale": counts["stale"] + counts["never"],
                     "agents_overloaded": counts["overloaded"],
                     "integrations_failing": integ.get("counts", {}).get("error", 0)},
-        "agents": agents, "integrations": integ, "backup": _backup(),
+        "agents": agents, "integrations": integ,
     }

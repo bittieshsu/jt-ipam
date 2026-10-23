@@ -47,6 +47,15 @@ check() {   # check <協定> <結果行>：要有畫面、沒有錯誤；會打�
 if [ -n "${RDP_TARGET:-}" ]; then
   IFS=: read -r H P U W <<< "$RDP_TARGET"
   R=$(flock /dist/.rdp.lock python3 /src/guacli.py "$PORT" /dist/"$PKG".rdp.png rdp "$H" "$P" "$U" "$W" | tail -1)
+  # 全黑只剩游標＝測試靶的 xterm 還沒起來（xrdp 第一次登入要啟動 X 工作階段，機器忙時超過收集時間）：
+  # guacd 有畫出游標、畫面是對的，只是靶還沒準備好。隔 10 秒再連一次（接上已啟動的工作階段），
+  # 第一次的數據留在日誌裡。2026-10-22 ubuntu:26.10 在後端全套測試同跑時誤判過一次，單獨重跑三次都正常。
+  px=$(printf '%s' "$R" | sed -n 's/.*painted_px=\([0-9]*\).*/\1/p')
+  if [ "${px:-0}" -lt 200 ] && printf '%s' "$R" | grep -q "err=None"; then
+    echo "rdp（第一次，靶可能還沒準備好）: $R"
+    sleep 10
+    R=$(flock /dist/.rdp.lock python3 /src/guacli.py "$PORT" /dist/"$PKG".rdp.png rdp "$H" "$P" "$U" "$W" | tail -1)
+  fi
   echo "rdp: $R"; check rdp "$R"
 
   # VNC：同一個容器裡起最小 RFB 測試靶（e2e/fixtures/vnc-target.py，接受任何密碼）

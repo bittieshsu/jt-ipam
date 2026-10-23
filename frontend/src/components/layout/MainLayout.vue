@@ -189,7 +189,7 @@ watch([inSubnetContext, currentSubnetId, navSubnets], () => {
 const intgPresence = ref<Record<string, boolean>>({
   opnsense: true, pfsense: true, fortigate: true, paloalto: true, mikrotik: true,
   dns: true,
-  cert_agents: true, proxmox: true, esxi: true, hyperv: true,
+  cert_agents: true, proxmox: true, esxi: true, hyperv: true, openstack: true,
 });
 const intgPresenceLoaded = ref(false);
 async function loadIntegrationPresence() {
@@ -223,6 +223,7 @@ const INTEGRATION_ITEMS: [string, string, Component][] = [
   ["virt_admin", "nav.virt_admin", VirtualizationIcon],
   ["esxi_admin", "nav.esxi_admin", VirtualizationIcon],
   ["hyperv_admin", "nav.hyperv_admin", VirtualizationIcon],
+  ["openstack_admin", "nav.openstack_admin", VirtualizationIcon],
   ["wazuh", "nav.wazuh", WazuhIcon],
   ["zabbix", "nav.zabbix", LibreNMSIcon],
   ["ocs", "nav.ocs", DevicesIcon],
@@ -233,7 +234,7 @@ const INTEGRATION_PRESENCE_KEY: Record<string, string> = {
   dns: "dns", adguard: "adguard", librenms: "librenms", firewall_admin: "opnsense", pfsense: "pfsense",
   fortigate: "fortigate", paloalto: "paloalto", checkpoint: "checkpoint", mikrotik: "mikrotik", snmp: "snmp",
   windows_dhcp: "windows_dhcp",
-  kea_dhcp: "kea_dhcp", isc_dhcp: "isc_dhcp", technitium_dhcp: "technitium", isoinsight: "isoinsight", rustdesk: "rustdesk", virt_admin: "proxmox", esxi_admin: "esxi", hyperv_admin: "hyperv",
+  kea_dhcp: "kea_dhcp", isc_dhcp: "isc_dhcp", technitium_dhcp: "technitium", isoinsight: "isoinsight", rustdesk: "rustdesk", virt_admin: "proxmox", esxi_admin: "esxi", hyperv_admin: "hyperv", openstack_admin: "openstack",
   wazuh: "wazuh", zabbix: "zabbix", ocs: "ocs", graylog_dsv: "graylog",
 };
 /** 已設定的整合在名稱後面加一個勾（使用者 2026-10-07）；選單是 render 函式，樣式要寫在行內 */
@@ -303,6 +304,8 @@ const menuOptions = computed<MenuOption[]>(() => {
           ? [{ label: () => t("nav.virt_vmware"), key: "virt_vmware", icon: renderIcon(VirtualizationIcon) }] : []),
         ...(intgPresence.value.hyperv
           ? [{ label: () => t("nav.virt_hyperv"), key: "virt_hyperv", icon: renderIcon(VirtualizationIcon) }] : []),
+        ...(intgPresence.value.openstack
+          ? [{ label: () => t("nav.virt_openstack"), key: "virt_openstack", icon: renderIcon(VirtualizationIcon) }] : []),
         ...(intgPresence.value.opnsense
           ? [{ label: () => t("nav.firewall"), key: "firewall", icon: renderIcon(FirewallIcon) }] : []),
         ...(intgPresence.value.pfsense

@@ -164,3 +164,14 @@ def observation_in_subnets(ids: set[Any]) -> Any:
     return or_(in_values(AnomalyObservation.subnet_id, ids),
                exists(select(Subnet.id).where(in_values(Subnet.id, ids),
                                               Subnet.cidr.op(">>=")(AnomalyObservation.ip))))
+
+
+#: 異常偵測裡「只供參考、不通知」的類別（例行的 MAC 換埠：VM 遷移、無線漫遊）：戰情室不列、不計數
+#: （10-23 使用者看到時序裡多一列沒翻譯的 mac_drift_reference，問「為何」）
+REFERENCE_CATEGORIES = ("mac_drift_reference",)
+
+
+def actionable_observation() -> Any:
+    from app.models.anomaly_observation import AnomalyObservation
+    return AnomalyObservation.category.not_in(REFERENCE_CATEGORIES)
+

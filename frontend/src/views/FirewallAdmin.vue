@@ -376,7 +376,7 @@ async function submitFw() {
         sync_aliases: newFw.value.sync_aliases,
         expose_dsv: newFw.value.expose_dsv,
         sync_interval_seconds: newFw.value.sync_interval_seconds,
-        description: newFw.value.description || undefined,
+        description: newFw.value.description ?? "",
         ...scopePayload(),
       };
       // 只在使用者輸入新憑證時才送 — backend 要 key+secret 同時送
@@ -398,7 +398,7 @@ async function submitFw() {
         sync_aliases: newFw.value.sync_aliases,
         expose_dsv: newFw.value.expose_dsv,
         sync_interval_seconds: newFw.value.sync_interval_seconds,
-        description: newFw.value.description || undefined,
+        description: newFw.value.description ?? "",
         ...scopePayload(),
       } as any);
     }

@@ -73,3 +73,21 @@ test("開放服務：排序／搜尋／協定大寫／配對彈卡／不溢出",
   await expect(pop.getByText("與它配對的是：")).toBeVisible();
   await expect(pop.getByText(/web-(rule|forward)/)).toBeVisible();
 });
+
+test("開放服務：防火牆上完全相同的規則合併成一列，標「重複 ×N」並說出序號（10-22）", async ({ page }) => {
+  const dup = [{ via: "rule", source: "opnsense", firewall: "opn-1", name: "Reverse Proxy",
+    protocol: "TCP", port: "443", descr: "Reverse Proxy", duplicates: [511, 801],
+    identity: { registered: true, ip: "198.51.100.105", hostname: "proxy-a", status: "online (scanner)" } }];
+  await page.route("**/api/v1/anomalies/attack-surface", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: dup }) }));
+  await page.goto(BASE + "/login");
+  await page.getByPlaceholder(/帳號|username/i).fill("admin");
+  await page.getByPlaceholder(/密碼|password/i).fill(ADMIN_PASS);
+  await page.keyboard.press("Enter");
+  await page.waitForURL(/dashboard|\/$/, { timeout: 15000 });
+  await page.goto(BASE + "/attack-surface");
+  const tag = page.getByTestId("surface-dup");
+  await expect(tag).toHaveText("重複 ×2", { timeout: 15000 });
+  await tag.hover();
+  await expect(page.getByText(/2 條完全相同的規則（序號 511, 801）/)).toBeVisible();
+});

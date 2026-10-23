@@ -114,6 +114,7 @@ CATEGORY: dict[str, str] = {
     # 異常觀測（0224）：每一筆異常出現到消失的期間，戰情室時序用；消失後保留 90 天
     "anomaly_observations": "operational",
     "cert_agents": "integrations",
+    "cert_push_targets": "integrations",
     "webhook_subscriptions": "integrations",
     "windows_dhcp_servers": "integrations",
     "kea_dhcp_servers": "integrations",
@@ -181,6 +182,10 @@ CATEGORY: dict[str, str] = {
     "dhcp_lease_sightings": "synced",      # 逐來源的 DHCP 租約目擊（in_dhcp_lease 由它推導）
     "esxi_instances": "integrations",
     "hyperv_instances": "integrations",
+    "openstack_instances": "integrations",
+    # Neutron 子網路與對應：含使用者的手動對應決定，跟著連線設定走（不當成可重抓的鏡像）
+    "openstack_subnets": "integrations",
+    "openstack_ports": "synced",           # Neutron port 鏡像：下一輪同步就重抓
     # operational（短暫／歷史）
     "audit_logs": "operational",
     # 登入工作階段：搬到別台沒有意義（Cookie 屬於原本的網址），只在選了「營運資料」時才帶

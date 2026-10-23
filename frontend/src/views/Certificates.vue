@@ -18,6 +18,7 @@ import {
   ImportIcon, TokenIcon, SettingsIcon, SyncIcon, DeleteIcon, TestIcon, EyeIcon, ToolsIcon, CancelIcon, EditIcon,
   ExportIcon, WarnIcon, UpgradeIcon, CheckIcon,
   BellIcon,
+  FirewallIcon,
 } from "@/icons";
 import { getCertExpiryDays } from "@/api/basic";
 import { autoSort } from "@/composables/useTableSort";
@@ -26,6 +27,7 @@ import { useTablePagination } from "@/composables/useTablePagination";
 import { SUDO } from "@/utils/sudo";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import ExportButton from "@/components/ExportButton.vue";
+import CertPushTargets from "@/components/CertPushTargets.vue";
 import {
   listCertificates, createCertificate, updateCertificate, deleteCertificate, uploadVersion, generateSelfSigned,
   setCertSource, fetchCertNow, testCertSource, genCertSourceSshKey, forgetCertSourceHostKey, listVersions,
@@ -989,6 +991,11 @@ const agentCols = computed<DataTableColumns<CertAgent>>(() =>
           </n-space>
         </n-space>
         <n-data-table :columns="agentCols" :data="agentsFiltered" size="small" :scroll-x="1041" :pagination="agentPg" :row-key="(r:CertAgent) => r.id" />
+      </n-tab-pane>
+      <!-- 推送到設備（0227）：伺服器主動把憑證推到防火牆，不用裝代理 -->
+      <n-tab-pane name="push" display-directive="show:lazy">
+        <template #tab><n-icon :component="FirewallIcon" style="margin-right:5px" />{{ t('certpush.tab') }}</template>
+        <CertPushTargets :cert-options="certOptions" />
       </n-tab-pane>
     </n-tabs>
   </n-card>

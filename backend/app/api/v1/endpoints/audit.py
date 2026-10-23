@@ -110,6 +110,8 @@ _LABEL_REGISTRY: dict[str, tuple[str, str, str]] = {
     "proxmox_instance": ("app.models.virt", "ProxmoxInstance", "api_url"),
     "esxi_instance": ("app.models.esxi", "ESXiInstance", "name"),
     "hyperv_instance": ("app.models.hyperv", "HyperVInstance", "name"),
+    "openstack_instance": ("app.models.openstack", "OpenStackInstance", "name"),
+    "openstack_subnet": ("app.models.openstack", "OpenStackSubnet", "cidr"),
     "virt_cluster": ("app.models.virt", "VirtCluster", "name"),
     "dns_server": ("app.models.dns", "DNSServer", "name"),
     "dns_compare_group": ("app.models.dns_compare_group", "DNSCompareGroup", "name"),

@@ -29,7 +29,7 @@ PRODUCT_NAMES: dict[str, list[str]] = {
     "fortigate": ["FortiGate"], "paloalto": ["Palo Alto"], "checkpoint": ["Check Point"], "mikrotik": ["MikroTik"],
     "snmp": ["SNMP"],
     "windows_dhcp": ["Windows DHCP"], "kea_dhcp": ["Kea"], "isc_dhcp": ["ISC DHCP"], "isoinsight": ["ISOinsight"],
-    "technitium": ["Technitium"], "rustdesk": ["RustDesk"], "proxmox": ["Proxmox VE"], "esxi": ["ESXi"], "hyperv": ["Hyper-V"],
+    "technitium": ["Technitium"], "rustdesk": ["RustDesk"], "proxmox": ["Proxmox VE"], "esxi": ["ESXi"], "hyperv": ["Hyper-V"], "openstack": ["OpenStack", "CubeCOS"],
     "wazuh": ["Wazuh"], "zabbix": ["Zabbix"], "ocs": ["OCS Inventory"], "graylog": ["Graylog"],
 }
 

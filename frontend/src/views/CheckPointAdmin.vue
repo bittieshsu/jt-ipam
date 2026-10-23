@@ -126,7 +126,7 @@ async function submit() {
     username: f.auth_mode === "password" ? f.username.trim() : null,
     domains: f.domains, packages: f.packages, enabled: f.enabled, sync_objects: f.sync_objects,
     sync_policies: f.sync_policies, sync_nat: f.sync_nat, sync_interval_seconds: f.sync_interval_seconds,
-    description: f.description || undefined, scope_subnet_ids: f.scope_subnet_ids,
+    description: f.description ?? "", scope_subnet_ids: f.scope_subnet_ids,
   };
   if (f.secret.trim()) payload.secret = f.secret.trim();
   try {

@@ -294,3 +294,90 @@ test("播放清單可以拖拉排序；電視的編號與數字鍵照播放順�
   await expect(page.locator(".wr-nav__i.on")).toContainText("異常");
   await expect(page.locator(".wr-nav__i.on")).toContainText("03");
 });
+
+/** 區塊內容有沒有超出自己的框（區塊 overflow:hidden 時 scrollHeight 會大於 clientHeight） */
+async function clipped(page: Page, sel: string): Promise<number[][]> {
+  return page.evaluate((s) => [...document.querySelectorAll<HTMLElement>(s)]
+    .map((e) => [e.scrollHeight, e.clientHeight]).filter(([a, b]) => a > b + 1), sel);
+}
+
+test("滿版資料不截斷：三個地點、DNS 來源滿格、判斷線索逐項排開、條帶有說明（10-22）", async ({ page }) => {
+  await pinConfig(page);
+  const ip = (n: number) => `192.0.2.${n}`;
+  await page.route(/\/api\/v1\/warroom\/pages\/overview/, async (route) => {
+    const d = await (await route.fetch()).json();
+    const g = (id: string, name: string | null, n: number) => ({ id, name, subnets: n, unit: 1,
+      counts: { ok: 0, warn: 0, anomaly: 2, stale: 0, unscanned: n - 2 }, cells: Array.from({ length: n }, (_, i) => (i < 2 ? "anomaly" : "unscanned")) });
+    d.group_by = "location";
+    d.groups = [g("a", "公司主機房", 3), g("b", "公司異地備援機房", 3), g(null as unknown as string, null, 21)];
+    d.priority = { state: "ok", total: 149, items: [1, 2, 3, 4].map((n) => ({ kind: "anomaly", category: "unauthorized_ip",
+      value: ip(n), severity: "high", at: new Date().toISOString(),
+      hints: { vm: "app-vm-01", vendor: "Proxmox Server Solutions GmbH", mac: "bc:24:11:00:00:31" } })) };
+    await route.fulfill({ json: d });
+  });
+  await page.route(/\/api\/v1\/warroom\/pages\/services/, async (route) => {
+    const d = await (await route.fetch()).json();
+    if (d.dns?.group?.sources) for (const s of d.dns.group.sources) {
+      s.cells = Array.from({ length: 72 }, (_, i) => (i < 60 ? "ok" : i < 66 ? "partial" : "missing"));
+      s.unit = 2; s.counts = { ok: 120, partial: 12, pending: 0, missing: 12 };
+    }
+    await route.fulfill({ json: d });
+  });
+  await page.route(/\/api\/v1\/warroom\/pages\/anomalies/, async (route) => {
+    const d = await (await route.fetch()).json();
+    const cells = [...Array(18).fill("active")];
+    d.timeline = { ...(d.timeline ?? {}), state: "ok", slots: 18, more: 6,
+      rows: ["stale_ips", "kind_change", "unauthorized_ips", "stale_dns", "external_exposure"].map((c, i) => ({ category: c, open: 80 - i * 10, seen: 1, cells })) };
+    d.priority = { state: "ok", total: 149, items: [1, 2, 3].map((n) => ({ id: `x${n}`, rank: n, category: "unauthorized_ips",
+      label: ip(n), ip: ip(n), severity: "high", first_seen_at: new Date().toISOString(), baseline: true,
+      hints: { vm: "app-vm-01", device_kind: "server", os: "Ubuntu 24.04", vendor: "Proxmox Server Solutions GmbH",
+               mac: "bc:24:11:00:00:31" } })) };
+    await route.fulfill({ json: d });
+  });
+  await login(page);
+  await page.goto("/warroom");
+  await expect(page.locator(".wr-title h1")).toBeVisible();
+
+  // 05 異常：右側卡片很高時，左下「對外開放服務的證據」仍整個在畫面內（10-22 使用者截圖）
+  await page.keyboard.press("5");
+  const evBox = await page.getByTestId("wr-an-evidence").boundingBox();
+  const foot = await page.locator(".wr-foot").boundingBox();
+  expect(evBox!.y + evBox!.height).toBeLessThanOrEqual(foot!.y + 1);
+
+  await page.keyboard.press("1");
+  await expect(page.getByTestId("wr-group")).toHaveCount(3);
+  expect(await clipped(page, ".ov-group")).toEqual([]);
+  // 第三個地點的最後一行（未掃描）要在畫面內
+  const last = page.getByTestId("wr-group").nth(2).locator(".ov-count").last();
+  const wr = await page.locator(".wr").boundingBox();
+  const lb = await last.boundingBox();
+  expect(lb!.y + lb!.height).toBeLessThanOrEqual(wr!.y + wr!.height);
+  // 線索是逐項的圖示＋文字，不是一串「·」
+  const hint = page.getByTestId("wr-hints").first();
+  await expect(hint.locator(".wr-hint")).toHaveCount(3);
+  await expect(hint).not.toContainText("·");
+
+  await page.keyboard.press("4");
+  await expect(page.getByTestId("wr-dns-source").first()).toBeVisible();
+  expect(await clipped(page, ".svc-q")).toEqual([]);
+
+  await page.keyboard.press("7");
+  const agents = page.getByTestId("wr-agent");
+  if (await agents.count()) await expect(page.getByTestId("wr-strip-caption").first()).toContainText(/最近 \d+ 輪/);
+  await expect(page.getByTestId("wr-sources")).not.toContainText("最近備份");
+});
+
+test("資料時間落後太久：右上變紅並出現警示圖示（10-23）", async ({ page }) => {
+  await pinConfig(page);
+  await page.route(/\/api\/v1\/warroom\/pages\//, async (route) => {
+    const d = await (await route.fetch()).json();
+    d.data_at = new Date(Date.now() - 60 * 60_000).toISOString();     // 一小時前的資料
+    await route.fulfill({ json: d });
+  });
+  await login(page);
+  await page.goto("/warroom");
+  const at = page.getByTestId("wr-data-at");
+  await expect(at).toHaveAttribute("data-stale", "1");
+  await expect(at.locator(".wr-ico")).toBeVisible();
+  await expect(at).toHaveClass(/wr-off/);
+});

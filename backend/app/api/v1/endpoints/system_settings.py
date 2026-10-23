@@ -2160,6 +2160,7 @@ async def integration_presence(
     from app.models.librenms import LibreNMSInstance
     from app.models.mikrotik import MikroTikRouter
     from app.models.ocs import OcsServer
+    from app.models.openstack import OpenStackInstance
     from app.models.paloalto import PaloAltoFirewall
     from app.models.pfsense import PfSenseFirewall
     from app.models.rustdesk import RustDeskServer
@@ -2183,6 +2184,7 @@ async def integration_presence(
         ("proxmox", ProxmoxInstance),
         ("esxi", ESXiInstance),
         ("hyperv", HyperVInstance),
+        ("openstack", OpenStackInstance),
         ("adguard", AdGuardInstance),
         ("librenms", LibreNMSInstance),
         ("windows_dhcp", WindowsDhcpServer),

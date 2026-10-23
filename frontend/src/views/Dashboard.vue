@@ -199,7 +199,7 @@ onMounted(async () => {
 // 看起來像資料少了。只有一邊時才有唯一正確的目的地。
 const virtRoute = computed<string | null>(() => {
   const on = [["virt", !!intg.value.proxmox], ["virt_vmware", !!intg.value.esxi],
-              ["virt_hyperv", !!intg.value.hyperv]].filter(([, v]) => v).map(([k]) => k as string);
+              ["virt_hyperv", !!intg.value.hyperv], ["virt_openstack", !!intg.value.openstack]].filter(([, v]) => v).map(([k]) => k as string);
   if (on.length > 1) return null;
   return on[0] ?? "virt";
 });

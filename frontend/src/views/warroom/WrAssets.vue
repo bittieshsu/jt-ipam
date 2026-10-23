@@ -10,6 +10,8 @@ import { pad2 } from "@/utils/warroom";
 import WrMatrix from "./WrMatrix.vue";
 import WrName from "./WrName.vue";
 import { usePageTransition } from "./paged";
+import WrIco from "./WrIco.vue";
+import { SECTION_ICONS } from "./wrIcons";
 
 const props = defineProps<{ data: PageData }>();
 const pageTrans = usePageTransition();     // 換資料頁只換分頁的那一區（paged.ts）
@@ -26,7 +28,7 @@ const clustersState = computed(() => props.data.clusters_state as string);
 const cov = computed(() => props.data.coverage as Coverage);
 const chg = computed(() => props.data.change as Change);
 const VM_STATES = ["running", "other", "stopped", "unknown"] as const;
-const PLATFORM: Record<string, string> = { proxmox: "Proxmox VE", vmware: "VMware vSphere", "hyper-v": "Hyper-V" };
+const PLATFORM: Record<string, string> = { proxmox: "Proxmox VE", vmware: "VMware vSphere", "hyper-v": "Hyper-V", openstack: "OpenStack" };
 const SYSTEM: Record<string, string> = { wazuh: "Wazuh", zabbix: "Zabbix", ocs: "OCS Inventory" };
 const CHANGE = [
   { key: "blocked", tone: "coral" }, { key: "needs_review", tone: "lilac" }, { key: "incomplete", tone: "ink" },
@@ -40,7 +42,7 @@ const CHANGE = [
       <div v-else-if="!clusters.length" class="wr-empty">{{ t("warroom.no_clusters") }}</div>
       <section v-for="c in clusters" :key="c.id" class="as-cl" data-testid="wr-cluster">
         <header class="as-cl__h">
-          <div class="as-cl__p">{{ PLATFORM[c.platform] ?? c.platform }}</div>
+          <div class="as-cl__p"><WrIco :icon="SECTION_ICONS.cluster" />{{ PLATFORM[c.platform] ?? c.platform }}</div>
           <WrName :text="c.name" class="as-cl__n" />
           <div class="as-cl__hosts"><span class="as-cl__hn">{{ c.hosts }}</span>{{ t("warroom.hosts_unit") }}</div>
         </header>
@@ -68,7 +70,7 @@ const CHANGE = [
     <div class="as-bottom">
       <section class="as-q" data-testid="wr-coverage">
         <header class="as-h">
-          <div class="wr-h2">{{ t("warroom.monitor_coverage") }}</div>
+          <div class="wr-h2"><WrIco :icon="SECTION_ICONS.coverage" />{{ t("warroom.monitor_coverage") }}</div>
           <span v-if="cov.with_ip != null" class="wr-index">{{ t("warroom.running_vms_n", { n: cov.with_ip }) }}</span>
         </header>
         <div v-if="cov.state === 'forbidden'" class="wr-muted">{{ t("warroom.forbidden") }}</div>
@@ -89,7 +91,7 @@ const CHANGE = [
 
       <section class="as-q" data-testid="wr-change">
         <header class="as-h">
-          <div class="wr-h2">{{ t("warroom.change_assessment") }}</div>
+          <div class="wr-h2"><WrIco :icon="SECTION_ICONS.change" />{{ t("warroom.change_assessment") }}</div>
           <span v-if="chg.open != null" class="wr-index">{{ t("warroom.open_plans_n", { n: chg.open }) }}</span>
         </header>
         <div v-if="chg.state === 'forbidden'" class="wr-muted">{{ t("warroom.forbidden") }}</div>

@@ -1083,7 +1083,8 @@ async def virt(ctx: Ctx) -> None:
 async def _virt_owners(ctx: Ctx) -> dict[Any, Any]:
     """叢集 → 同步它的虛擬化整合（時效與出處用；以前虛擬機的證據一律寫「未知」）。"""
     out: dict[Any, Any] = {}
-    for kind, table in (("proxmox", "proxmox_instances"), ("esxi", "esxi_instances"), ("hyperv", "hyperv_instances")):
+    for kind, table in (("proxmox", "proxmox_instances"), ("esxi", "esxi_instances"), ("hyperv", "hyperv_instances"),
+                        ("openstack", "openstack_instances")):
         for iid, cid in (await ctx.session.execute(text(
                 f"SELECT id, cluster_id FROM {table} WHERE cluster_id IS NOT NULL"))).all():  # noqa: S608 -- 表名是常數
             src = ctx.source(kind, iid)

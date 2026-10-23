@@ -49,6 +49,9 @@ COLUMN_SECRETS: dict[str, list[tuple[str, str, str, Callable[[dict[str, Any]], b
     "hyperv_instances": [
         ("password", "password_enc", "password_nonce", _aad_id("hyperv_instance:{id}:password")),
     ],
+    "openstack_instances": [
+        ("secret", "secret_enc", "secret_nonce", _aad_id("openstack_instance:{id}:secret")),
+    ],
     "librenms_instances": [
         ("api_token", "api_token_enc", "api_token_nonce", _aad_id("librenms_instance:{id}:api_token")),
     ],

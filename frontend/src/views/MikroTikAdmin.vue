@@ -162,7 +162,7 @@ async function submit() {
     section_delay_ms: form.value.section_delay_ms,
     max_response_mb: form.value.max_response_mb,
     sync_interval_seconds: form.value.sync_interval_seconds,
-    description: form.value.description || undefined,
+    description: form.value.description ?? "",
     scope_subnet_ids: form.value.scope_subnet_ids,
   };
   try {

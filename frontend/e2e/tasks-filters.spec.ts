@@ -28,11 +28,11 @@ test("作業歷史：搜尋與篩選送到後端；代理回報與資料庫更�
   const row = table.locator("tbody tr").first();
   await expect(row).toContainText("rustdesk.sync");     // 內部名稱留在小字
   await expect(row).toContainText("RustDesk 同步");      // 類型顯示名稱（2026-10-09）
-  await expect(row.getByTestId("task-summary-text")).toContainText("上線 2");
+  await expect(row.getByTestId("task-summary-chips")).toContainText("上線 2");
 
   // 資料庫更新：結論是幾個廠商前綴，不是四個數字
   await page.getByTestId("tasks-search").locator("input").fill("Wireshark");
-  await expect(table.locator("tbody tr").first().getByTestId("task-summary-text"))
+  await expect(table.locator("tbody tr").first().getByTestId("task-summary-chips"))
     .toContainText("39000", { timeout: 10_000 });
 
   // 沒有錯誤訊息的失敗探測：講清楚是失敗

@@ -103,7 +103,7 @@ export const IP_CHANGE_EVENT_TYPES = [
 // 「上線／失聯」翻轉的來源是讓它上線的那個整合；失聯是 system（系統判定證據過期，#49）
 export const IP_CHANGE_SOURCES = [
   "manual", "user", "system", "scanner", "librenms", "dns",
-  "proxmox", "esxi", "hyperv", "opnsense", "pfsense", "fortigate", "paloalto", "checkpoint", "mikrotik",
+  "proxmox", "esxi", "hyperv", "openstack", "opnsense", "pfsense", "fortigate", "paloalto", "checkpoint", "mikrotik",
   "wazuh", "zabbix", "ocs", "adguard", "kea_dhcp", "isc_dhcp", "isoinsight", "technitium", "windows_dhcp", "rustdesk",
   // SNMP 收集（0217）：ARP 補 MAC 時寫的異動記錄
   "snmp",

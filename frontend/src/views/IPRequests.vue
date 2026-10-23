@@ -190,7 +190,7 @@ async function submitCreate() {
       subnet_id: form.value.subnet_id,
       purpose: form.value.purpose,
       hostname: form.value.hostname || undefined,
-      description: form.value.description || undefined,
+      description: form.value.description ?? "",
       requested_ip: form.value.requested_ip || undefined,
     });
     msg.success(t("requests.submitted"));

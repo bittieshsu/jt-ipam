@@ -27,6 +27,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("jt-ipam-sync")
 
+#: 到期判斷容許的誤差：排程（jt-ipam-sync.timer）每 5 分鐘跑一輪，上一次的完成時間是上一輪跑到一半才寫入的。
+#: 不容許誤差的話，設 300 秒的整合常常差幾十秒沒到期，被延到下一輪，實際變成 10 分鐘（10-23 DNS 實際 16 分鐘一次）。
+DUE_SLACK = timedelta(seconds=150)
+
+
+def _sync_due(last: datetime, interval: timedelta) -> bool:
+    """距離上次同步已經超過「間隔減去誤差」：這一輪該跑了。用當下時間，不用這一輪開始的時間。"""
+    return datetime.now(UTC) >= last + interval - DUE_SLACK
+
 
 def _is_deadlock(exc: BaseException) -> bool:
     """例外鏈上有 PostgreSQL 的死結（asyncpg DeadlockDetectedError，外面可能包了 SQLAlchemy 的例外）。"""
@@ -69,6 +78,7 @@ async def _run() -> int:
     from app.models.dns import DNSServer
     from app.models.esxi import ESXiInstance
     from app.models.hyperv import HyperVInstance
+    from app.models.openstack import OpenStackInstance
     from app.models.firewall import OPNsenseFirewall
     from app.models.fortigate import FortiGateFirewall
     from app.models.mikrotik import MikroTikRouter
@@ -122,7 +132,7 @@ async def _run() -> int:
         ).scalars().all()
         for fw in fws:
             interval = timedelta(seconds=fw.sync_interval_seconds)
-            if fw.last_sync_at and fw.last_sync_at + interval > now:
+            if fw.last_sync_at and not _sync_due(fw.last_sync_at, interval):
                 continue
             name = fw.name
             try:
@@ -149,7 +159,7 @@ async def _run() -> int:
         ).scalars().all()
         for fw in pfws:
             interval = timedelta(seconds=fw.sync_interval_seconds)
-            if fw.last_sync_at and fw.last_sync_at + interval > now:
+            if fw.last_sync_at and not _sync_due(fw.last_sync_at, interval):
                 continue
             name = fw.name
             try:
@@ -173,7 +183,7 @@ async def _run() -> int:
             select(ESXiInstance).where(ESXiInstance.enabled.is_(True))
         )).scalars().all():
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -198,7 +208,7 @@ async def _run() -> int:
             select(HyperVInstance).where(HyperVInstance.enabled.is_(True))
         )).scalars().all():
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -217,6 +227,31 @@ async def _run() -> int:
                 failed += 1
                 await _hb(session, kind="hyperv.sync", target_type="hyperv_instance",
                           target_id=inst.id, target_label=name, ok=False, error=str(exc))
+
+        # ── Bigstack CubeCOS／OpenStack（Keystone＋Nova＋Neutron，選用 CubeCOS 節點）──
+        for inst in (await session.execute(
+            select(OpenStackInstance).where(OpenStackInstance.enabled.is_(True))
+        )).scalars().all():
+            interval = timedelta(seconds=inst.sync_interval_seconds)
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
+                continue
+            name = inst.name
+            try:
+                from app.services import openstack as openstack_svc
+                summary = await openstack_svc.sync_instance(session, inst)
+                await session.commit()
+                log.info("openstack %s: %s", name, summary)
+                await _hb(session, kind="openstack.sync", target_type="openstack_instance",
+                          target_id=inst.id, target_label=name, ok=True, summary=summary)
+            except Exception as exc:
+                # 先 rollback 再寫 last_error：不 rollback 會二次爆、連鎖中斷整輪
+                await session.rollback()
+                inst.last_error = str(exc)[:2000]
+                await session.commit()
+                log.error("openstack %s sync failed: %s", name, exc)
+                failed += 1
+                await _hb(session, kind="openstack.sync", target_type="openstack_instance",
+                          target_id=inst.id, target_label=name, ok=False, error=str(exc))
         # ── Wazuh ──
         wzs = (
             await session.execute(
@@ -225,7 +260,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in wzs:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -259,7 +294,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in zbxs:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -286,7 +321,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in lns:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -343,6 +378,7 @@ async def _run() -> int:
                 ("librenms", LibreNMSInstance), ("wazuh", WazuhInstance),
                 ("zabbix", ZabbixInstance), ("adguard", AdGuardInstance),
                 ("proxmox", ProxmoxInstance), ("esxi", ESXiInstance), ("hyperv", HyperVInstance),
+                ("openstack", OpenStackInstance),
                 ("opnsense", OPNsenseFirewall), ("pfsense", PfSenseFirewall),
                 ("fortigate", FortiGateFirewall), ("paloalto", PaloAltoFirewall),
                 ("checkpoint", CheckPointServer), ("checkpoint_gaia", CheckPointGaiaTarget),
@@ -454,7 +490,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in ags:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -481,7 +517,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in fgs:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -507,7 +543,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in pas:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -534,7 +570,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in cps:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -561,7 +597,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in cpgs:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -590,7 +626,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in mts:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -617,7 +653,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in ocs_servers:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -644,7 +680,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in wdhcps:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -670,7 +706,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in keas:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -695,7 +731,7 @@ async def _run() -> int:
         ).scalars().all()
         for inst in tdns:
             interval = timedelta(seconds=inst.sync_interval_seconds)
-            if inst.last_sync_at and inst.last_sync_at + interval > now:
+            if inst.last_sync_at and not _sync_due(inst.last_sync_at, interval):
                 continue
             name = inst.name
             try:
@@ -770,7 +806,7 @@ async def _run() -> int:
         for cluster_id, insts in pv_groups.items():
             interval = timedelta(seconds=min(i.sync_interval_seconds for i in insts))
             lasts = [i.last_sync_at for i in insts if i.last_sync_at]
-            if lasts and max(lasts) + interval > now:
+            if lasts and not _sync_due(max(lasts), interval):
                 continue
             # 作業表格顯示用的標籤：優先用叢集名稱（ProxmoxInstance 無 name/host 欄，
             # 別直接印 cluster_id UUID），退而用實例 api_url，再退 "proxmox"。
@@ -796,8 +832,7 @@ async def _run() -> int:
                 await _hb(session, kind="proxmox.sync", target_type="proxmox_cluster",
                           target_id=cluster_id, target_label=pv_label, ok=False, error=str(exc))
 
-        # ── DNS servers ──（沒有 sync_interval_seconds 欄；用固定 10 分鐘 throttle）
-        dns_interval = timedelta(seconds=600)
+        # ── DNS servers ──（用各自的 sync_interval_seconds；以前寫死 600 秒，加上排程誤差實際 16 分鐘才一次）
         dnss = (
             await session.execute(
                 select(DNSServer).where(DNSServer.enabled.is_(True))
@@ -805,7 +840,7 @@ async def _run() -> int:
         ).scalars().all()
         for srv in dnss:
             last = getattr(srv, "last_pull_at", None) or getattr(srv, "last_sync_at", None)
-            if last and last + dns_interval > now:
+            if last and not _sync_due(last, timedelta(seconds=srv.sync_interval_seconds or 600)):
                 continue
             name = srv.name
             try:
@@ -832,7 +867,7 @@ async def _run() -> int:
             )).scalars().all()
             for c in srcs:
                 interval = timedelta(seconds=c.fetch_interval_seconds)
-                if c.last_fetch_at and c.last_fetch_at + interval > now:
+                if c.last_fetch_at and not _sync_due(c.last_fetch_at, interval):
                     continue
                 res = await fetch_certificate(session, c, actor_user_id=None)  # 自行 commit
                 if res.get("status") in ("updated", "error"):
@@ -840,6 +875,22 @@ async def _run() -> int:
         except Exception as exc:
             await session.rollback()
             log.error("cert fetch sweep failed: %s", exc)
+
+        # ── 憑證自動推送到防火牆（0227）：目標上的版本不是目前版本才推；失敗的隔一小時再試 ──
+        # 一個目標一個交易：某台推失敗不影響其他台；推送結果與稽核由 engine 記錄
+        try:
+            from app.services.cert_push.engine import due_targets, push_target
+            for t in await due_targets(session):
+                try:
+                    res = await push_target(session, t, trigger="auto")
+                    await session.commit()
+                    log.info("cert push %s: %s", t.name, res.get("status"))
+                except Exception as exc:
+                    await session.rollback()
+                    log.error("cert push %s failed: %s", t.name, exc)
+        except Exception as exc:
+            await session.rollback()
+            log.error("cert push sweep failed: %s", exc)
 
         # ── 憑證到期 / 飄移告警 ──（去重保證每輪呼叫也不洗版）
         try:

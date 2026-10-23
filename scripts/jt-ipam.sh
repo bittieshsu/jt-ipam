@@ -277,11 +277,26 @@ GUACD_PREFIX=/opt/jt-ipam-guacd
 GUACD_UNIT=jt-ipam-guacd.service
 GUACD_RELEASE_BASE="https://github.com/jasoncheng7115/jt-ipam/releases/download"
 
+# 要裝哪個 build：以 scripts/guacd/SHA256SUMS 實際列出的為準（這個 OS 最新的 rev），沒有才退回 source.env。
+# source.env 的 GUACD_BUILD_REV 是「下一次要編」的版本：先升上去推到 GitHub 才能觸發 workflow 編出新 release，
+# release 與新的 SHA256SUMS 進來之前不可以去抓還不存在的檔案（那段空窗期客戶安裝會失敗；2026-10-23 為了 Ubuntu 26.10）
+guacd_published_rev() {
+    local ver os_tag arch rev
+    ver="$(grep -oP '^GUACD_VERSION=\K\S+' "$REPO_ROOT/scripts/guacd/source.env")"
+    # shellcheck disable=SC1091
+    os_tag="$(. /etc/os-release && echo "${ID}${VERSION_ID}")"
+    arch="$(dpkg --print-architecture)"
+    rev="$(grep -oP "jt-ipam-guacd-\Q${ver}\E-\K[0-9]+(?=-\Q${os_tag}-${arch}\E\.tar\.gz$)" \
+             "$REPO_ROOT/scripts/guacd/SHA256SUMS" 2>/dev/null | sort -n | tail -1 || true)"
+    [[ -n "$rev" ]] || rev="$(grep -oP '^GUACD_BUILD_REV=\K\S+' "$REPO_ROOT/scripts/guacd/source.env")"
+    echo "$rev"
+}
+
 # jt-ipam-guacd-<version>-<rev>-<os><ver>-<arch>, e.g. ...-ubuntu24.04-amd64
 guacd_package_name() {
     local ver rev
     ver="$(grep -oP '^GUACD_VERSION=\K\S+' "$REPO_ROOT/scripts/guacd/source.env")"
-    rev="$(grep -oP '^GUACD_BUILD_REV=\K\S+' "$REPO_ROOT/scripts/guacd/source.env")"
+    rev="$(guacd_published_rev)"
     # shellcheck disable=SC1091
     local os_tag; os_tag="$(. /etc/os-release && echo "${ID}${VERSION_ID}")"
     echo "jt-ipam-guacd-${ver}-${rev}-${os_tag}-$(dpkg --print-architecture)"
@@ -363,7 +378,7 @@ ensure_guacd_current() {
     [[ "$installed" == "0" ]] && log "Installing guacd (required: the RDP / VNC console engine)…"
     local name want_ver
     name="$(guacd_package_name)"
-    want_ver="$(grep -oP '^GUACD_VERSION=\K\S+' "$REPO_ROOT/scripts/guacd/source.env") (build $(grep -oP '^GUACD_BUILD_REV=\K\S+' "$REPO_ROOT/scripts/guacd/source.env"))"
+    want_ver="$(grep -oP '^GUACD_VERSION=\K\S+' "$REPO_ROOT/scripts/guacd/source.env") (build $(guacd_published_rev))"
     if [[ "$installed" == "1" && -z "$tarball" && "$(guacd_installed_version)" == "$want_ver"* ]]; then
         # Same build: just make sure the unit is current and running
         install -m 0644 "$REPO_ROOT/deploy/systemd/$GUACD_UNIT" "/etc/systemd/system/$GUACD_UNIT"
@@ -1611,7 +1626,8 @@ SQL
     log "Setting up backend venv…"
     cd "$BACKEND_DIR"
     sudo -u "$JTIPAM_USER" "$PYTHON_BIN" -m venv .venv
-    sudo -u "$JTIPAM_USER" .venv/bin/pip install --upgrade pip wheel
+    # pip 至少 26.2.2：舊版 pip 內嵌的 certifi 仍信任 2026-10 金鑰外洩的 eMudhra/emSign 中間憑證，從 PyPI 下載會被冒充
+    sudo -u "$JTIPAM_USER" .venv/bin/pip install --upgrade "pip>=26.2.2" wheel
     # prod installs runtime deps only (matching upgrade); for dev/test tools run pip install -e ".[dev]" separately
     sudo -u "$JTIPAM_USER" .venv/bin/pip install -e .
     install_rdp_optional
@@ -2481,6 +2497,9 @@ cmd_upgrade() {
 
     # -- 4. backend dependencies --
     log "Updating backend dependencies (pip install -e .)…"
+    # 先把 pip 升到安全版本（以前升級完全不升 pip）：舊版 pip 內嵌的 certifi 仍信任 2026-10 外洩的 emSign 中間憑證
+    ( cd "$ROOT/backend"; as_user .venv/bin/pip install --quiet --upgrade "pip>=26.2.2" ) \
+        || warn "Could not upgrade pip to 26.2.2 or later; continuing with the current pip"
     ( cd "$ROOT/backend"; as_user .venv/bin/pip install --quiet -e . )
     install_rdp_optional
     ensure_kerberos_support

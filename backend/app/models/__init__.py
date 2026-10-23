@@ -22,6 +22,7 @@ from app.models.anomaly_observation import AnomalyObservation
 from app.models.audit import AuditLog
 from app.models.background_task import BackgroundTask
 from app.models.base import Base
+from app.models.cert_push_target import CertPushTarget
 from app.models.certificate import CertAgent, Certificate, CertVersion
 from app.models.change_impact import (
     ChangePlan,
@@ -85,6 +86,7 @@ from app.models.migration_mapping import PhpIPAMMigrationMapping
 from app.models.mikrotik import MikroTikAddressList, MikroTikNeighbor, MikroTikRouter, MikroTikRule
 from app.models.nat import NATTranslation
 from app.models.notification import Notification, WebhookSubscription
+from app.models.openstack import OpenStackInstance, OpenStackPort, OpenStackSubnet
 from app.models.oui import OUIVendor
 from app.models.paloalto import (
     PaloAltoAddressObject,
@@ -148,6 +150,7 @@ __all__ = [
     "Cable",
     "CableTermination",
     "CertAgent",
+    "CertPushTarget",
     "CertVersion",
     "Certificate",
     "ChangePlan",
@@ -213,6 +216,9 @@ __all__ = [
     "OPNsenseFirewall",
     "OPNsenseRuleLabel",
     "OPNsenseSyncedAlias",
+    "OpenStackInstance",
+    "OpenStackPort",
+    "OpenStackSubnet",
     "PVEFirewallGroup",
     "PVEFirewallIPSet",
     "PVEFirewallRule",

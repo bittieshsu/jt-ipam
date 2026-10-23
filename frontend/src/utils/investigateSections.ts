@@ -9,6 +9,7 @@
  * 段落沒有資料就不回傳（畫面不放空標題）。
  */
 import { fmtClock } from "./datetime";
+import { virtTech } from "./virt";
 
 export type Translate = (key: string, params?: Record<string, unknown>) => string;
 
@@ -208,8 +209,7 @@ function virtLines(d: D, h: SectionHelpers): string[] {
   const v = d.virtualization;
   if (!v) return [];
   const tag = v.kind === "ct" ? h.t("addresses.virt_ct_tag") : h.t("addresses.virt_vm_tag");
-  const tech = v.platform === "proxmox" ? (v.kind === "ct" ? "LXC" : v.kind === "vm" ? "KVM" : "")
-    : v.platform === "vmware" ? "VMware" : v.platform === "hyper-v" ? "Hyper-V" : "";
+  const tech = virtTech(v.platform, v.kind);
   return [join([
     `${v.vm}（${tech ? `${tag} · ${tech}` : tag}）`,
     v.node ? `${h.t("investigate.virt_node")} ${v.node}` : null,
@@ -429,8 +429,7 @@ export function integrationTables(d: D | null | undefined, h: SectionHelpers,
   const v = d.virtualization;
   if (v) {
     const tag = v.kind === "ct" ? h.t("addresses.virt_ct_tag") : h.t("addresses.virt_vm_tag");
-    const tech = v.platform === "proxmox" ? (v.kind === "ct" ? "LXC" : v.kind === "vm" ? "KVM" : "")
-      : v.platform === "vmware" ? "VMware" : v.platform === "hyper-v" ? "Hyper-V" : "";
+    const tech = virtTech(v.platform, v.kind);
     out.push(table("virt", h.t("investigate.sec_virt"),
       [c("name"), c("type"), c("node"), c("status"), c("cluster"), "VMID"],
       [[v.vm, tech ? `${tag} · ${tech}` : tag, v.node, v.status ? label(h, `virt.vm_status_${v.status}`, v.status) : null,

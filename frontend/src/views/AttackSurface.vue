@@ -59,6 +59,8 @@ interface Entry {
   service?: ServiceInfo;
   via: string; source: string; firewall: string | null; name: string;
   protocol: string | null; port: number | string | null; descr: string;
+  /** 防火牆上完全相同的規則合併成這一列時，各條的序號（小的在前＝生效的那條；10-22） */
+  duplicates?: (number | null)[];
   identity: { registered: boolean; ip?: string; ip_id?: string; hostname?: string | null;
               status?: string | null; subnet?: string | null;
               customer?: string | null; wazuh?: string | null; fqdns?: string[];
@@ -73,6 +75,7 @@ interface Row {
   owner: string | null; wazuh: string | null;
   status: string | null; online: boolean | null; statusSrc: string;
   descr: string; key: string; fqdns: string[];
+  duplicates: (number | null)[];
   /** 後端給的列識別（AI 分析時送回畫面上那些列；後端照它重挑） */
   akey: string;
   service: ServiceInfo | null;
@@ -140,6 +143,7 @@ const rows = computed<Row[]>(() => items.value.map((i, idx) => {
     status: raw ? (online ? t("surface.st_online") : t("surface.st_offline")) : null,
     online, statusSrc: raw ? ((raw.match(/\(([^)]+)\)/)?.[1]) ?? "") : "",
     descr: i.descr || "",
+    duplicates: i.duplicates ?? [],
     fqdns: ident.fqdns ?? [],
     key: `${ident.ip ?? "?"}:${i.port ?? ""}`,
     akey: i.key ?? "",
@@ -381,9 +385,18 @@ const allCols: Record<string, any> = {
     render: (r: Row) => r.hostname || "—" },
   // 對外開的是攝影機、NAS 還是伺服器（掃描代理判讀出的設備類型，滑過看型號）
   device_kind: deviceKindColumn(t, te),
-  via: { title: () => t("surface.col_via"), key: "via", width: 130,
-    render: (r: Row) => h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, [
+  via: { title: () => t("surface.col_via"), key: "via", width: 170,
+    render: (r: Row) => h("span", { style: "display:inline-flex;align-items:center;gap:6px;white-space:nowrap" }, [
       r.via === "nat" ? "NAT" : t("surface.rule"),
+      // 防火牆上有完全相同的規則（使用者 10-22：「怎麼有兩筆一樣的？」）：合併成一列並標出來，回防火牆清掉
+      r.duplicates.length > 1 ? h(NTooltip, null, {
+        trigger: () => h(NTag, { size: "tiny", type: "warning", bordered: false, style: "cursor: help",
+                                 "data-testid": "surface-dup" },
+                         { default: () => t("surface.dup_n", { n: r.duplicates.length }) }),
+        default: () => r.duplicates.every((x) => x != null)
+          ? t("surface.dup_tip_seq", { n: r.duplicates.length, seqs: r.duplicates.join(", ") })
+          : t("surface.dup_tip", { n: r.duplicates.length }),
+      }) : null,
       isPaired(r) ? h(NPopover, { trigger: "hover", placement: "right" }, {
         trigger: () => h(NTag, { size: "tiny", type: "info", bordered: false,
                                  style: "cursor: pointer" },

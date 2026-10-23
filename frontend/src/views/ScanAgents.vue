@@ -14,7 +14,7 @@ import {
 } from "@/icons";
 import {
   listScanAgents, createScanAgent, updateScanAgent, deleteScanAgent, rotateScanAgentKey, scanNowAgent,
-  getAgentSubnets, setAgentSubnets,
+  getAgentSubnets, setAgentSubnets, getAgentSubnetList, type AgentSubnetItem,
   type ScanAgent,
   type ScanAgentTool,
 } from "@/api/phase3";
@@ -59,6 +59,32 @@ const saPicker = computed(() => [
 const msg = useMessage();
 const route = useRoute();
 const router = useRouter();
+
+// ── 代理負責的子網路（點子網路數字彈出）──
+const subnetListShow = ref(false);
+const subnetListAgent = ref<ScanAgent | null>(null);
+const subnetList = ref<AgentSubnetItem[]>([]);
+const subnetListLoading = ref(false);
+async function openSubnetList(a: ScanAgent) {
+  subnetListAgent.value = a;
+  subnetList.value = [];
+  subnetListShow.value = true;
+  subnetListLoading.value = true;
+  try { subnetList.value = await getAgentSubnetList(a.id); } catch (e) { msg.error(apiErrMsg(e)); }
+  finally { subnetListLoading.value = false; }
+}
+const subnetListCols = computed<DataTableColumns<AgentSubnetItem>>(() => [
+  { title: "CIDR", key: "cidr", width: 170,
+    render: (r) => h(NButton, { text: true, type: "primary", onClick: () => goSubnet(r.id) }, () => r.cidr) },
+  { title: t("cols.description"), key: "description", render: (r) => r.description || "—" },
+  { title: t("scan_agent.scan_enabled"), key: "scan_enabled", width: 110,
+    render: (r) => h(NTag, { size: "small", bordered: false, type: r.scan_enabled ? "success" : "default" },
+                     () => (r.scan_enabled ? t("scan_agent.scan_on") : t("scan_agent.scan_off"))) },
+]);
+function goSubnet(id: string) {
+  subnetListShow.value = false;
+  void router.push(`/subnets/${id}`);
+}
 // 頁籤跟著網址（?tab=jump）：舊的 /jump-hosts 書籤轉到這裡也落在跳板頁籤
 const tab = ref<string>(route.query.tab === "jump" ? "jump" : "agents");
 watch(tab, (v) => {
@@ -228,7 +254,9 @@ async function submit() {
   try {
     if (editing.value) {
       await updateScanAgent(editing.value.id, {
-        description: form.value.description || undefined,
+        name: form.value.name.trim() || undefined,       // 可以改名（10-22）：代理靠金鑰辨識，名稱只是顯示用
+        // 空字串也要送：以前 `|| undefined` 讓「刪光說明再儲存」等於沒改（10-22 使用者回報）
+        description: form.value.description ?? "",
         enabled: form.value.enabled,
         auto_create_ips: form.value.autoCreate,
         enabled_probes: enabledProbes.value,
@@ -242,7 +270,7 @@ async function submit() {
     } else {
       const created = await createScanAgent({
         name: form.value.name,
-        description: form.value.description || undefined,
+        description: form.value.description ?? "",
         enabled: form.value.enabled,
         auto_create_ips: form.value.autoCreate,
         enabled_probes: enabledProbes.value,
@@ -290,7 +318,8 @@ function copy(text: string) {
 
 function iconAction(icon: any, label: string, onClick: () => void, type?: any) {
   return h(NTooltip, null, {
-    trigger: () => h(NButton, { size: "small", quaternary: true, type,
+    // 只有圖示的按鈕：補可讀名稱（螢幕報讀與自動化測試都讀不到 tooltip）
+    trigger: () => h(NButton, { size: "small", quaternary: true, type, "aria-label": label,
       onClick: (e: MouseEvent) => { e.stopPropagation(); onClick(); } },
       { icon: () => h(NIcon, null, () => h(icon)) }),
     default: () => label,
@@ -332,7 +361,12 @@ const allCols = computed<DataTableColumns<ScanAgent>>(() => autoSort([
   },
   {
     title: t("scanAgentHelp.col_subnets"), key: "subnet_count", width: 64,
-    render: (r) => r.subnet_count ?? 0,
+    // 數字可以點：彈出這台代理負責哪些子網路（使用者 10-22）
+    render: (r) => (r.subnet_count
+      ? h(NButton, { text: true, type: "primary", "data-testid": "agent-subnet-count",
+                     onClick: (e: MouseEvent) => { e.stopPropagation(); void openSubnetList(r); } },
+          () => String(r.subnet_count))
+      : 0),
   },
   {
     // 負載＝上線偵測一輪耗時 ÷ 週期；點一下看逐子網路細節與建議（代理 1.10.0 起才有）
@@ -374,7 +408,9 @@ const allCols = computed<DataTableColumns<ScanAgent>>(() => autoSort([
           : t("scan_agent.snmp_no_tool");
       return h(NTooltip, null, {
         trigger: () => h(NTag, {
-          size: "small", round: true, bordered: false, style: "cursor:pointer", "data-testid": "scan-agent-snmp",
+          // 圓角標籤＋圖示預設左邊太貼（10-22 使用者回報）：左右各留一點
+          size: "small", round: true, bordered: false, style: "cursor:pointer;padding:0 11px 0 10px;gap:2px",
+          "data-testid": "scan-agent-snmp",
           type: s.capable ? (s.target_count ? "success" : "info") : "default",
           onClick: () => void router.push({ name: "snmp", query: { agent: r.id } }),
         }, {
@@ -528,7 +564,7 @@ onMounted(async () => {
       </template>
       <n-form>
         <n-form-item :label="t('common.name')">
-          <n-input v-model:value="form.name" :disabled="!!editing" />
+          <n-input v-model:value="form.name" data-testid="agent-name" />
         </n-form-item>
         <n-form-item :label="t('sections.description')">
           <n-input v-model:value="form.description" type="textarea" :rows="2" />
@@ -733,6 +769,11 @@ onMounted(async () => {
       </div>
     </n-modal>
 
+    <n-modal v-model:show="subnetListShow" preset="card" style="width:560px;max-width:95vw"
+             :title="t('scan_agent.subnets_of', { name: subnetListAgent?.name ?? '' })" data-testid="agent-subnet-list">
+      <n-data-table size="small" :loading="subnetListLoading" :data="subnetList" :max-height="420"
+                    :row-key="(r: AgentSubnetItem) => r.id" :columns="subnetListCols" />
+    </n-modal>
     <ScanAgentLoadPanel v-model:show="loadShow" :agent="loadAgent" :agents="rows"
                         @changed="refresh" @create="loadShow = false; openCreate()" />
   </n-card>

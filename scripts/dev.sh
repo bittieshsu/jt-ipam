@@ -24,7 +24,7 @@ case "$cmd" in
         echo "[setup] backend venv + deps"
         cd "$BACKEND_DIR"
         python3.12 -m venv .venv
-        .venv/bin/pip install --upgrade pip wheel
+        .venv/bin/pip install --upgrade "pip>=26.2.2" wheel
         .venv/bin/pip install -e ".[dev]"
 
         if [[ -f "$ENV_FILE" ]]; then

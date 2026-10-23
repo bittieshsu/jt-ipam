@@ -5,6 +5,7 @@ import LiveStatusDot from "@/components/LiveStatusDot.vue";
 import { classifyAddressLiveness, type LivenessKind } from "@/composables/useLivenessSettings";
 import { fmtDateTime } from "@/utils/datetime";
 import { useI18n } from "vue-i18n";
+import { arpLines, fdbBlocks } from "@/utils/bleedEvidence";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useEntityLinks } from "@/composables/useEntityLinks";
 import {
@@ -504,41 +505,49 @@ function renderIp(row: any, ipText: string) {
 // 子網段混在同一個二層的例子：以前一格塞一整段句子（「X 的 ARP 回應用了 Y，這個 MAC 屬於 Z」一句接一句、
 // MAC 表一個交換器一大段），使用者回饋非常不好讀（2026-10-20）。改成小表格：ARP 一筆一行三欄；
 // MAC 表依交換器／VLAN 分塊，塊內依子網段、埠排列。儲存格吃不到 scoped 樣式，一律行內。
-const BLEED_GRID = "display:grid;column-gap:14px;row-gap:2px;font-size:12.5px;align-items:baseline";
 const BLEED_HEAD = "font-size:11.5px;opacity:.6";
 const MONO = "font-family:var(--mono,monospace)";
+// 10-22 再改（「這感覺還是很亂」）：ARP 成對的合併成「A ⇄ B」；MAC 表同一台交換器合併、只列「埠 ×數量」，
+// 完整 MAC 放在滑過的提示；兩個子網段共用的埠標出來。整理邏輯在 utils/bleedEvidence（有單元測試）。
+const BLEED_SHOW = 5;
+function moreBlock(rest: any[], label: string) {
+  if (!rest.length) return null;
+  return h("details", { style: "margin-top:2px" }, [
+    h("summary", { style: "cursor:pointer;font-size:12px;opacity:.75" }, label),
+    h("div", { style: "display:flex;flex-direction:column;gap:2px;margin-top:2px" }, rest),
+  ]);
+}
 function renderBleedArp(list: any[]) {
-  const seen = new Set<string>();
-  const rows = list.filter((x) => { const key = `${x.ip}|${x.mac}`; return seen.has(key) ? false : (seen.add(key), true); });
-  return h("div", { style: `${BLEED_GRID};grid-template-columns:auto auto auto` }, [
-    ...["bleed_col_ip", "bleed_col_mac", "bleed_col_owner"].map((c) => h("div", { style: BLEED_HEAD }, t(`anomaly.${c}`))),
-    ...rows.flatMap((x) => [
-      h("div", { style: MONO, title: x.subnet ?? "" }, x.ip),
-      h("div", { style: MONO }, x.mac),
-      h("div", { style: MONO, title: x.mac_owner_subnet ?? "" }, x.mac_owner_ip),
-    ]),
+  const lines = arpLines(list).map((x) => x.kind === "pair"
+    ? h("div", { style: `${MONO};white-space:nowrap;font-size:12.5px`,
+                 title: t("anomaly.bleed_pair_tip", { a: x.a, b: x.b, macA: x.macA, macB: x.macB }) },
+        [x.a, h("span", { style: "opacity:.7;margin:0 8px;font-size:15px;font-family:system-ui" }, "⇄"), x.b])
+    : h("div", { style: `${MONO};white-space:nowrap;font-size:12.5px`,
+                 title: t("anomaly.bleed_one_tip", { ip: x.ip, mac: x.mac, owner: x.owner ?? "—" }) },
+        [x.ip, h("span", { style: "opacity:.7;margin:0 8px;font-size:15px;font-family:system-ui" }, "→"), x.owner ?? x.mac]));
+  return h("div", { style: "display:flex;flex-direction:column;gap:2px" }, [
+    h("div", { style: BLEED_HEAD }, t("anomaly.bleed_arp_head")),
+    ...lines.slice(0, BLEED_SHOW),
+    moreBlock(lines.slice(BLEED_SHOW), t("anomaly.bleed_more_n", { n: lines.length - BLEED_SHOW })),
   ]);
 }
 function renderBleedFdb(list: any[]) {
-  return h("div", { style: "display:flex;flex-direction:column;gap:8px" }, list.map((x: any) => {
-    const cells: any[] = [];
-    for (const [cidr, macs] of Object.entries(x.macs ?? {})) {
-      const byPort = new Map<string, string[]>();
-      for (const m of macs as any[]) byPort.set(m.port || "—", [...(byPort.get(m.port || "—") ?? []), m.mac]);
-      [...byPort.entries()].forEach(([port, ms], i) => cells.push(
-        h("div", { style: "white-space:nowrap" }, i ? "" : cidr),
-        h("div", { style: `${MONO};white-space:nowrap` }, port),
-        h("div", { style: MONO }, ms.join("、")),
-      ));
-    }
-    return h("div", null, [
-      h("div", { style: "font-size:12.5px;font-weight:600;margin-bottom:2px" }, `${x.switch} · VLAN ${x.vlan}`),
-      h("div", { style: `${BLEED_GRID};grid-template-columns:auto auto 1fr` }, [
-        ...["bleed_col_subnet", "bleed_col_port", "bleed_col_macs"].map((c) => h("div", { style: BLEED_HEAD }, t(`anomaly.${c}`))),
-        ...cells,
-      ]),
-    ]);
-  }));
+  const blocks = fdbBlocks(list).map((b) => h("div", null, [
+    h("div", { style: "font-size:12.5px;font-weight:600;margin-bottom:2px" },
+      b.vlan ? `${b.switch} · VLAN ${b.vlan}` : b.switch),
+    ...b.subnets.map((sub) => h("div", { style: "display:grid;grid-template-columns:128px 1fr;gap:8px;font-size:12.5px;margin-top:2px" }, [
+      h("span", { style: `${MONO};white-space:nowrap;line-height:20px` }, sub.cidr),
+      h("div", { style: "display:flex;flex-wrap:wrap;gap:4px 6px" }, sub.ports.map((p) => h("span", {
+        style: `${MONO};white-space:nowrap;padding:0 6px;border-radius:4px;line-height:20px;`
+          + (p.shared ? "background:rgba(240,160,32,.16);color:#c27a00" : "background:rgba(128,128,128,.12)"),
+        title: (p.shared ? t("anomaly.bleed_shared_port") + "\n" : "") + p.macs.join("\n"),
+      }, `${p.port} ×${p.macs.length}`))),
+    ])),
+  ]));
+  return h("div", { style: "display:flex;flex-direction:column;gap:8px" }, [
+    ...blocks.slice(0, 3),
+    moreBlock(blocks.slice(3), t("anomaly.bleed_more_switches", { n: blocks.length - 3 })),
+  ]);
 }
 function renderVal(k: string, v: any, row?: any, cat?: CatKey) {
   if (k === "live") return liveDot(v);

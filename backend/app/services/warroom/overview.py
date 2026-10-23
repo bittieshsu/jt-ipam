@@ -21,6 +21,7 @@ from app.core.sqlin import in_values
 from app.models.anomaly_observation import AnomalyObservation
 from app.services.warroom import subnets as sn
 from app.services.warroom.common import (
+    actionable_observation,
     observation_in_subnets,
     paginate,
     scope_active,
@@ -56,7 +57,7 @@ async def _anomalies_by_subnet(session: AsyncSession, ids: list[Any]) -> dict[An
     out: dict[Any, int] = {}
     for sid, n in (await session.execute(
             select(AnomalyObservation.subnet_id, func.count()).where(
-                AnomalyObservation.resolved_at.is_(None), in_values(AnomalyObservation.subnet_id, ids))
+                AnomalyObservation.resolved_at.is_(None), actionable_observation(), in_values(AnomalyObservation.subnet_id, ids))
             .group_by(AnomalyObservation.subnet_id))).all():
         out[sid] = out.get(sid, 0) + int(n)
     rows = (await session.execute(text("""
@@ -108,10 +109,11 @@ async def _priority(session: AsyncSession, now: datetime, scope_ids: set[Any] | 
 
     items: list[dict[str, Any]] = []
     for o in (await session.execute(
-            select(AnomalyObservation).where(AnomalyObservation.resolved_at.is_(None),
+            select(AnomalyObservation).where(AnomalyObservation.resolved_at.is_(None), actionable_observation(),
                                              *([observation_in_subnets(scope_ids)] if scope_ids is not None else []))
             .order_by(AnomalyObservation.first_seen_at.desc()).limit(200))).scalars().all():
         items.append({"kind": "anomaly", "category": o.category, "value": o.label or "",
+                      "ip": str(o.ip) if o.ip else None,
                       "severity": "high" if o.category in HIGH else "medium",
                       "at": o.first_seen_at.isoformat()})
     soon = now + timedelta(days=CERT_SOON_DAYS)
@@ -128,7 +130,14 @@ async def _priority(session: AsyncSession, now: datetime, scope_ids: set[Any] | 
                       "at": checked.isoformat() if checked else None})
     rank = {"high": 0, "medium": 1}
     items.sort(key=lambda i: (rank[i["severity"]], -(datetime.fromisoformat(i["at"]).timestamp() if i.get("at") else 0)))
-    return section("ok" if items else "empty", items=items[:3], total=len(items))
+    shown = items[:3]
+    # 判斷線索（MAC 廠牌、VM、DNS 名稱）：只查畫面上這幾筆（hints.py）
+    from app.services.warroom.hints import ip_hints
+    hints = await ip_hints(session, [i["ip"] for i in shown if i.get("ip")])
+    for i in shown:
+        if i.get("ip") in hints:
+            i["hints"] = hints[i["ip"]]
+    return section("ok" if items else "empty", items=shown, total=len(items))
 
 
 async def build(session: AsyncSession, *, user: Any, cfg: dict[str, Any], page: int = 1,
@@ -166,7 +175,7 @@ async def build(session: AsyncSession, *, user: Any, cfg: dict[str, Any], page: 
 
     scope_ids = {f.id for f in facts} if scope_active(cfg) else None
     open_total = int(await session.scalar(select(func.count()).select_from(AnomalyObservation).where(
-        AnomalyObservation.resolved_at.is_(None),
+        AnomalyObservation.resolved_at.is_(None), actionable_observation(),
         *([observation_in_subnets(scope_ids)] if scope_ids is not None else []))) or 0) if admin else None
     return {
         "key": "overview", "data_at": now.isoformat(), "page": page, "pages": pages, "per_page": PER_PAGE,

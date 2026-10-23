@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.models.hyperv import HyperVInstance
+    from app.models.openstack import OpenStackInstance
     from app.models.virt import ProxmoxInstance
 
 
@@ -128,5 +129,15 @@ async def forget_hyperv_instance(session: AsyncSession, instance: HyperVInstance
 
     await forget_instance(session, source="hyperv", source_id=instance.id)
     await release_origin_ports(session, f"hyperv:{instance.id}")
+    if instance.cluster_id is not None:
+        await session.execute(delete(VirtualMachine).where(VirtualMachine.cluster_id == instance.cluster_id))
+
+
+async def forget_openstack_instance(session: AsyncSession, instance: OpenStackInstance) -> None:
+    """刪除 OpenStack 整合：主機名稱回報（origin `openstack:<整合 id>`）、VM 鏡像（網卡 CASCADE）。
+    port／子網路對應跟著連線 CASCADE。叢集本身留著 —— 上面可能有使用者設的地點／客戶。"""
+    from app.models.virt import VirtualMachine
+
+    await forget_instance(session, source="openstack", source_id=instance.id)
     if instance.cluster_id is not None:
         await session.execute(delete(VirtualMachine).where(VirtualMachine.cluster_id == instance.cluster_id))
