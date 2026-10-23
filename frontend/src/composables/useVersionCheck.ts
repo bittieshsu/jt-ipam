@@ -21,6 +21,27 @@ import { RefreshIcon } from "@/icons";
 let prompted = false;         // 全分頁只提醒一次，避免洗版
 let seenBuild: string | null = null;   // 這個分頁第一次看到的 build 識別碼
 
+/** 有沒有新版（版本號或 build 雜湊變了）。戰情室的自動重新載入與一般畫面的提示共用同一套比對。 */
+export async function newVersionDeployed(): Promise<{ changed: boolean; version?: string }> {
+  try {
+    const res = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return { changed: false };
+    const data = (await res.json()) as { version?: string; build?: string };
+    const deployed = data?.version;
+    const running = __APP_VERSION__;
+    const build = data?.build;
+    if (build && seenBuild === null) seenBuild = build;
+    const changed = (!!deployed && !!running && deployed !== running)
+      || (!!build && !!seenBuild && build !== seenBuild);
+    return { changed, version: deployed };
+  } catch {
+    return { changed: false };             // 離線 / 尚未部署 version.json → 略過
+  }
+}
+
+/** 測試用：清掉這個分頁記住的 build 識別碼 */
+export function _resetVersionCheck(): void { seenBuild = null; prompted = false; }
+
 export function useVersionCheck() {
   const message = useMessage();
   const { t } = useI18n();
@@ -29,15 +50,7 @@ export function useVersionCheck() {
   async function check() {
     if (prompted) return;
     try {
-      const res = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
-      if (!res.ok) return;
-      const data = (await res.json()) as { version?: string; build?: string };
-      const deployed = data?.version;
-      const running = __APP_VERSION__;
-      const build = data?.build;
-      if (build && seenBuild === null) seenBuild = build;
-      const changed = (!!deployed && !!running && deployed !== running)
-        || (!!build && !!seenBuild && build !== seenBuild);
+      const { changed, version: deployed } = await newVersionDeployed();
       if (changed) {
         prompted = true;
         message.warning("", {

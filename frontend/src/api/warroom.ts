@@ -40,15 +40,26 @@ export interface PageData {
   [k: string]: unknown;
 }
 
-/** 這個分頁的顯示權杖（網址帶 ?display= 時存進 sessionStorage，網址列隨即清掉） */
+/** 這台電視的顯示權杖（網址帶 ?display= 時存起來，網址列隨即清掉）。
+ *  存 localStorage 而不是 sessionStorage：電視每天關機，隔天瀏覽器還原的是已經清掉權杖的網址，
+ *  sessionStorage 又跟著瀏覽器關閉被清空，就會掉到登入頁（10-23 使用者問到）。權杖只能讀戰情室、
+ *  隨時可撤銷。失效時不清掉：電視會一直顯示「權杖無效」而不是掉到登入頁，用新的網址開一次就覆蓋。
+ *  舊版存在 sessionStorage 的也照樣讀得到。 */
 export function displayToken(): string | null {
-  try { return sessionStorage.getItem(DISPLAY_KEY); } catch { return null; }
+  try {
+    const t = localStorage.getItem(DISPLAY_KEY);
+    if (t) return t;
+    const old = sessionStorage.getItem(DISPLAY_KEY);   // 舊版存在這裡：搬過去，之後關機重開也記得
+    if (old) { localStorage.setItem(DISPLAY_KEY, old); sessionStorage.removeItem(DISPLAY_KEY); }
+    return old;
+  } catch { return null; }
 }
 export function setDisplayToken(t: string | null): void {
   try {
-    if (t) sessionStorage.setItem(DISPLAY_KEY, t);
-    else sessionStorage.removeItem(DISPLAY_KEY);
-  } catch { /* 無痕或封鎖儲存：只是重新整理後要再帶一次網址 */ }
+    if (t) localStorage.setItem(DISPLAY_KEY, t);
+    else localStorage.removeItem(DISPLAY_KEY);
+    sessionStorage.removeItem(DISPLAY_KEY);
+  } catch { /* 無痕或封鎖儲存：只能把完整的權杖網址設成電視的首頁 */ }
 }
 
 function client(): AxiosInstance {

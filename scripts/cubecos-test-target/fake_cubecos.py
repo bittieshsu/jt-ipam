@@ -847,6 +847,10 @@ class Request:
         self.headers, self.body, self.params = headers, body, {}
 
 
+def _no_crlf(v: object) -> str:
+    return str(v).replace("\r", "").replace("\n", "")
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "fake-cubecos"
     sys_version = ""
@@ -866,7 +870,8 @@ class Handler(BaseHTTPRequestHandler):
         if reply.body or reply.status not in (204, 304):
             self.send_header("Content-Type", reply.ctype)
         for k, v in reply.headers:
-            self.send_header(k, v)
+            # 有些標頭值來自請求（例如 SAML 轉址網址）：拿掉 CR／LF，避免回應分割（CodeQL #58）
+            self.send_header(_no_crlf(k), _no_crlf(v))
         self.send_header("Content-Length", str(len(reply.body)))
         self.end_headers()
         if self.command != "HEAD" and reply.body:

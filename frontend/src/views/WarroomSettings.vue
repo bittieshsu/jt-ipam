@@ -321,6 +321,8 @@ onMounted(load);
           </n-popconfirm>
         </n-space>
         <code v-if="tvUrl" class="wrs-url">{{ tvUrl }}</code>
+        <!-- 電視每天關機（10-23）：用網址開一次就記住，隔天開機不用再帶權杖 -->
+        <p v-if="s.token_set" class="wrs-hint wrs-hint--block" data-testid="wrs-url-hint">{{ t("warroom_settings.url_hint") }}</p>
       </div>
     </n-card>
   </div>

@@ -381,3 +381,21 @@ test("資料時間落後太久：右上變紅並出現警示圖示（10-23）", 
   await expect(at.locator(".wr-ico")).toBeVisible();
   await expect(at).toHaveClass(/wr-off/);
 });
+
+test("偵測到新版：網站準備好後自動重新載入，接著播原本的主題（10-23）", async ({ page }) => {
+  await pinConfig(page);
+  let build = "e2e-A";
+  await page.route(/\/version\.json/, (route) => route.fulfill({ json: { version: "0.0.0-e2e", build } }));
+  await login(page);
+  await page.clock.install();                                       // 要在開頁面之前裝：載入時就設好的計時器才快轉得到
+  await page.goto("/warroom");
+  await expect(page.locator(".wr-title h1")).toBeVisible();
+  await page.keyboard.press("4");                                   // 停在 04 服務
+  await expect(page.locator(".wr-nav__i.on")).toContainText("04");
+  build = "e2e-B";                                                  // 部署了新版
+  const reloaded = page.waitForEvent("load");
+  await page.clock.fastForward(181_000);
+  await reloaded;
+  await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".wr-nav__i.on")).toContainText("04");  // 重新載入後接著播 04
+});

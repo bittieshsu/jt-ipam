@@ -4,6 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [Unreleased]
+
+### 變更
+- guacd build 4 已發佈（release `guacd-1.6.1-pre.d9ec474-4`），`scripts/guacd/SHA256SUMS` 換成 build 4：**Ubuntu 26.10 可以安裝了**；其他 OS 升級時 guacd 會從 build 3 換成 build 4。
+- 戰情室偵測到新版會自動重新載入：每 3 分鐘比對版本，新版的網頁與後端都正常回應後才載入（升級到一半不會停在錯誤頁），載入後接著播原本的主題、頁碼與暫停狀態。以前戰情室完全不偵測新版，一般畫面也只是跳「點此重新整理」，電視前沒有人會點。
+- 電視顯示權杖改記在瀏覽器的 localStorage：電視每天關機，隔天瀏覽器還原的是已清掉權杖的網址，以前權杖存在 sessionStorage、跟著瀏覽器關閉被清空，就會掉到登入頁。網址列仍然不留權杖；舊版存的權杖會自動搬過去。戰情室設定頁加註說明。
+
+### 安全性
+- CubeCOS 模擬伺服器（測試工具）寫出回應標頭前去掉換行字元（CodeQL #58）。
+
 ## [1.0.14] - 2026-10-23
 
 ### 新增

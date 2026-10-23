@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [Unreleased]
+
+### Changed
+- guacd build 4 is published (release `guacd-1.6.1-pre.d9ec474-4`) and `scripts/guacd/SHA256SUMS` now lists it: **Ubuntu 26.10 can be installed**; on other OSes an upgrade moves guacd from build 3 to build 4.
+- The war room reloads itself when a new version is deployed: it checks every 3 minutes and reloads only once the new page and the backend answer (an upgrade in progress never leaves it on an error page), then resumes the same topic, page and paused state. It never checked before, and ordinary pages only show a "click to refresh" prompt nobody clicks on a TV.
+- The TV display token is kept in localStorage: TVs are switched off nightly and the browser restores the address without the token; it used to live in sessionStorage, which the browser clears on close, so the TV fell back to the login page. The token still never stays in the address bar; a token saved by the previous version is moved over. War room settings explain this.
+
+### Security
+- The CubeCOS simulator (test tool) strips line breaks from response headers (CodeQL #58).
+
 ## [1.0.14] - 2026-10-23
 
 ### Added

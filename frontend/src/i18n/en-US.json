@@ -8832,6 +8832,7 @@
     "regenerate": "Regenerate",
     "regenerate_confirm": "Regenerating stops the old URL on every TV at once; they need the new URL. Continue?",
     "token_rotated": "New token generated; set the new URL on the TVs",
+    "url_hint": "Open this URL once on the TV and it remembers the token, even after the TV is switched off (the token does not stay in the address bar). After a new token is generated, open the new URL once. If the TV browser clears its data on every start (private or kiosk mode), set the full URL as its home page.",
     "reveal": "Show",
     "copy_url": "Copy TV URL",
     "revoke": "Revoke",

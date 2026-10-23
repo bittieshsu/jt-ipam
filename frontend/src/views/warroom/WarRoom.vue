@@ -25,6 +25,7 @@ import { useAuthStore } from "@/stores/auth";
 import { nextStep, pad2, pageStep, topicByNumber, topicStep, type Step } from "@/utils/warroom";
 import WrAnomalies from "./WrAnomalies.vue";
 import WrIco from "./WrIco.vue";
+import { startAutoReload, takeResume } from "./autoReload";
 import { WarnIcon } from "@/icons";
 import WrAssets from "./WrAssets.vue";
 import WrCapacity from "./WrCapacity.vue";
@@ -72,6 +73,7 @@ const numberOf = (key: string) => pad2(playlist.value.indexOf(key) + 1);   // �
 
 let rotateTimer: ReturnType<typeof setTimeout> | null = null;
 let clockTimer: ReturnType<typeof setInterval> | null = null;
+let stopAutoReload: (() => void) | null = null;
 let operatorTimer: ReturnType<typeof setTimeout> | null = null;
 let loadSeq = 0;
 
@@ -221,7 +223,15 @@ onMounted(async () => {
   }
   if (cfg.value.language) locale.value = cfg.value.language;
   if (!playlist.value.length) { fatal.value = "warroom_no_pages"; return; }
-  await go({ key: playlist.value[0], page: 1 });
+  // 新版自動重新載入後接著播原本的主題（autoReload.ts）
+  const resume = takeResume();
+  stopAutoReload = startAutoReload(() => ({ key: step.value.key, page: step.value.page, paused: paused.value }));
+  if (resume && playlist.value.includes(resume.key)) {
+    paused.value = resume.paused;
+    await go({ key: resume.key, page: resume.page });
+  } else {
+    await go({ key: playlist.value[0], page: 1 });
+  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", fit);
@@ -230,6 +240,7 @@ onBeforeUnmount(() => {
   if (rotateTimer) clearTimeout(rotateTimer);
   if (operatorTimer) clearTimeout(operatorTimer);
   if (clockTimer) clearInterval(clockTimer);
+  stopAutoReload?.();
 });
 watch(paused, () => schedule());
 
