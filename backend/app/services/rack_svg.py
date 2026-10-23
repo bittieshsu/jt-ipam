@@ -49,7 +49,7 @@ _COLORS: dict[str, str] = {
     "switch": "rgba(34, 197, 94, 0.85)",
     "firewall": "rgba(239, 68, 68, 0.85)",
     "ap": "rgba(59, 130, 246, 0.85)",
-    "server": "rgba(107, 114, 128, 0.85)",
+    "server": "rgba(52, 104, 158, 0.9)",
     "storage": "rgba(245, 158, 11, 0.85)",
     "ipmi": "rgba(236, 72, 153, 0.6)",
     "patch_panel": "rgba(20, 184, 166, 0.75)",
@@ -57,7 +57,12 @@ _COLORS: dict[str, str] = {
     "ups": "rgba(202, 138, 4, 0.85)",
     "workstation": "rgba(14, 165, 233, 0.8)",
 }
-_DEFAULT_COLOR = "rgba(107, 114, 128, 0.6)"
+_DEFAULT_COLOR = "rgba(107, 114, 128, 0.7)"
+#: 「其他」與沒分類的：灰底加斜紋（跟畫面一樣），伺服器是鋼藍（10-23 客戶：整櫃灰灰的分不出來）
+_OTHER_PATTERN = ('<pattern id="rd-other" width="11" height="11" patternUnits="userSpaceOnUse" '
+                  'patternTransform="rotate(45)">'
+                  f'<rect width="11" height="11" fill="{_DEFAULT_COLOR}"/>'
+                  '<rect width="5" height="11" fill="rgba(255,255,255,0.22)"/></pattern>')
 
 #: 各型態各顏色的配色。**與前端 `utils/rackFinish.ts` 的 FINISH_COLORS 相同**
 #: （tests/test_rack_more_kinds.py 會比對兩邊），否則畫面與嵌入圖的顏色會不一樣。
@@ -504,6 +509,8 @@ def _build(name: str, u_height: int, devices: list[dict[str, Any]],
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" font-family="sans-serif">',
         *([f"<defs>{_angle_defs(finish)}</defs>"] if kind == "angle_shelf" else []),
+        *([f"<defs>{_OTHER_PATTERN}</defs>"]
+          if any(str(d.get("type") or "") not in _COLORS for d in devices) else []),
         f'<rect x="0" y="0" width="{width}" height="{height}" fill="#ffffff"/>',
         f'<text x="{rack_left - edge:.2f}" y="{PAD + 16}" font-size="14" font-weight="bold">'
         f"{_esc(name)} ({u}{'U' if uses_rack_units(kind) else _esc(' 層')})</text>",
@@ -543,7 +550,7 @@ def _build(name: str, u_height: int, devices: list[dict[str, Any]],
             hgt = vspan * cell
             y_top = y_bot - (v0 + vspan) * cell
         x, w, cx = _part_geom(dev, rack_left, COL_W)
-        color = _COLORS.get(str(dev.get("type") or ""), _DEFAULT_COLOR)
+        color = _COLORS.get(str(dev.get("type") or ""), "url(#rd-other)")
         p.append(
             f'<rect x="{x}" y="{y_top + 1}" width="{w}" height="{hgt - 2}" '
             f'fill="{color}" stroke="rgba(0,0,0,0.3)"/>'

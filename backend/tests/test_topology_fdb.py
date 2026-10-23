@@ -355,3 +355,59 @@ async def test_edge_skipped_when_one_end_is_filtered_out(db_session):
     node_ids = {n["data"]["id"] for n in g["nodes"]}
     for e in g["edges"]:
         assert e["data"]["source"] in node_ids and e["data"]["target"] in node_ids
+
+
+async def _two_switch_uplink(session):
+    """兩台交換器互接：sw-a 的 Eth1/1/1 朝 sw-b、sw-b 的 eth1/0/25 朝 sw-a（兩邊都看得到對方自己的 MAC）。"""
+    a = await _device(session, "sw-a")
+    b = await _device(session, "sw-b")
+    sn = await _subnet(session)
+    await _ip(session, sn, "198.51.100.2", "aa:bb:cc:00:a0:01", a)
+    await _ip(session, sn, "198.51.100.3", "aa:bb:cc:00:b0:01", b)
+    await _fdb(session, a, "Eth1/1/1", "aa:bb:cc:00:b0:01")
+    await _fdb(session, b, "eth1/0/25", "aa:bb:cc:00:a0:01")
+    return a, b, sn
+
+
+async def test_dual_homed_host_gets_one_edge_per_switch_with_its_nic_mac(db_session):
+    """虛擬化主機兩張網卡各接一台交換器（實機 10-23：一台主機的 LAN 卡在一台交換器、
+    儲存網路卡在另一台）。每張網卡也會從交換器之間的上聯埠被對面學到；上聯埠
+    （看得到別台交換器自己 MAC 的埠）不是端點，剩下的那個埠即使有好幾個 MAC（主機上的 VM）
+    也是它插的地方。兩條線都要畫，並帶各自的網卡 MAC 讓前端認得出是雙接。"""
+    a, b, sn = await _two_switch_uplink(db_session)
+    host = await _device(db_session, "pve-1", "server")
+    lan, stor = "aa:bb:cc:00:c0:01", "aa:bb:cc:00:c0:02"
+    await _ip(db_session, sn, "198.51.100.110", lan, host)
+    # 儲存網路那張卡沒有 IP 記錄，只在裝置埠上（LibreNMS 匯入的介面 MAC）
+    from app.models.physical import DevicePort
+    db_session.add(DevicePort(device_id=host.id, name="enp23s0d1", mac_address=stor))
+    await db_session.flush()
+    vms = [f"aa:bb:cc:00:c1:{i:02x}" for i in range(UPLINK_MAC_THRESHOLD + 6)]
+    # LAN 卡：接在 sw-b 的 eth1/0/10（埠上還有 VM 的 MAC），也從 sw-a 的上聯 Eth1/1/1 學到
+    # 兩張表各自老化，上聯埠那份不一定是存取埠那份的超集合（實機就是這樣，包含關係判不出內外）
+    for m in [lan, *vms]:
+        await _fdb(db_session, b, "eth1/0/10", m)
+    for m in [lan, *vms[:-2]]:
+        await _fdb(db_session, a, "Eth1/1/1", m)
+    # 儲存卡：直接接在 sw-a 的 Eth1/4，也從 sw-b 的上聯 eth1/0/25 學到
+    await _fdb(db_session, a, "Eth1/4", stor)
+    await _fdb(db_session, b, "eth1/0/25", stor)
+
+    g = await build_topology(db_session, include_l3=False, include_vpn=False, include_wireless=False)
+    mine = sorted((e for e in _l2(g) if e["source"] == str(host.id)), key=lambda e: e["port"])
+    assert [(e["target"], e["port"]) for e in mine] == [(str(a.id), "Eth1/4"), (str(b.id), "eth1/0/10")]
+    assert [e["mac"] for e in mine] == [stor, lan]
+    assert [e["direct"] for e in mine] == [True, False]
+    assert [e["nic"] for e in mine] == ["enp23s0d1", None]
+
+
+async def test_busy_port_alone_still_unplaced_without_an_uplink_to_rule_out(db_session):
+    """只排除「看得到別台交換器」的上聯埠：沒有上聯可排除時，單一熱鬧埠照舊不猜。"""
+    a, _b, sn = await _two_switch_uplink(db_session)
+    host = await _device(db_session, "srv-y", "server")
+    mac = "aa:bb:cc:00:d0:01"
+    await _ip(db_session, sn, "198.51.100.120", mac, host)
+    for m in [mac] + [f"aa:bb:cc:00:d1:{i:02x}" for i in range(UPLINK_MAC_THRESHOLD + 2)]:
+        await _fdb(db_session, a, "Te1/1/9", m)
+    g = await build_topology(db_session, include_l3=False, include_vpn=False, include_wireless=False)
+    assert [e for e in _l2(g) if e["source"] == str(host.id)] == []

@@ -192,6 +192,20 @@ async def push_now(target_id: uuid.UUID, user: CurrentUser, request: Request,
     return {"task_id": str(task.id), "status": task.status, "queued_at": task.queued_at.isoformat()}
 
 
+def _opn() -> Any:
+    from app.services.cert_push.drivers import OPNsenseDriver
+    return OPNsenseDriver
+
+
+def _pf() -> Any:
+    from app.services.cert_push.drivers import PfSenseDriver
+    return PfSenseDriver
+
+
+#: 能讀設備上憑證清單的設備（OPNsense：選要替換哪一張；pfSense：唯讀看哪張在用、何時到期）
+_LISTABLE = {"opnsense": _opn, "pfsense": _pf}
+
+
 class DeviceCertsPreviewIn(StrictModel):
     kind: str
     api_url: str = Field(..., min_length=8, max_length=512)
@@ -206,9 +220,8 @@ async def device_certs_preview(body: DeviceCertsPreviewIn,
                                session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, Any]:
     """還沒存檔就讀設備上的憑證（使用者 10-22：「替換設備上的哪一張不能選，正常嗎？」——這欄必填，
     以前卻要先存檔才讀得到）。用表單上的帳密連一次、只讀不寫，不保存任何東西，所以不留稽核。"""
-    from app.services.cert_push.drivers import OPNsenseDriver
-    if body.kind != "opnsense":
-        raise HTTPException(400, detail=ui_detail("certpush_list_unsupported", "listing is only for OPNsense"))
+    if body.kind not in _LISTABLE:
+        raise HTTPException(400, detail=ui_detail("certpush_list_unsupported", "listing is only for OPNsense and pfSense"))
     _check(body.kind, body.api_url.strip(), {})
     secret = body.secret.model_dump() if body.secret and body.secret.api_key else None
     if secret is None and body.target_id is not None:
@@ -219,7 +232,7 @@ async def device_certs_preview(body: DeviceCertsPreviewIn,
     probe = CertPushTarget(name="preview", kind=body.kind, api_url=body.api_url.strip(), verify_tls=body.verify_tls,
                            options={})
     try:
-        rows = await OPNsenseDriver(engine.make_http(probe, secret), {}).list_device_certs()
+        rows = await _LISTABLE[body.kind]()(engine.make_http(probe, secret), {}).list_device_certs()
     except PushError as exc:
         raise HTTPException(502, detail=ui_detail(exc.code, "device request failed", reason=exc.detail)) from exc
     return {"items": rows}
@@ -228,12 +241,11 @@ async def device_certs_preview(body: DeviceCertsPreviewIn,
 @router.get("/{target_id}/device-certs")
 async def device_certs(target_id: uuid.UUID, session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, Any]:
     """OPNsense：列出設備上的憑證，讓管理員選要替換哪一張（唯讀）。"""
-    from app.services.cert_push.drivers import OPNsenseDriver
     t = await _get(session, target_id)
-    if t.kind != "opnsense":
-        raise HTTPException(400, detail=ui_detail("certpush_list_unsupported", "listing is only for OPNsense"))
+    if t.kind not in _LISTABLE:
+        raise HTTPException(400, detail=ui_detail("certpush_list_unsupported", "listing is only for OPNsense and pfSense"))
     try:
-        rows = await OPNsenseDriver(engine.make_http(t, await engine.load_secret(session, t.id)), {}).list_device_certs()
+        rows = await _LISTABLE[t.kind]()(engine.make_http(t, await engine.load_secret(session, t.id)), {}).list_device_certs()
     except PushError as exc:
         raise HTTPException(502, detail=ui_detail(exc.code, "device request failed", reason=exc.detail)) from exc
     return {"items": rows}

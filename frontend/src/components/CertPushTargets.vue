@@ -4,23 +4,26 @@
  * 每次推送：匯入／替換 → 換上 → 連過去確認對方出示的是新憑證 → 確認不到就換回原本的（services/cert_push）。
  * 帳密只寫不讀（修改時留空＝沿用）；「立即推送」走背景作業。
  */
-import { computed, h, onMounted, ref } from "vue";
+import { computed, h, onMounted, ref, type VNode } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NAlert, NButton, NCheckbox, NCheckboxGroup, NDataTable, NForm, NFormItem, NIcon, NInput, NModal,
-  NPopconfirm, NPopover, NSelect, NSpace, NSwitch, NTag, NTooltip, useMessage, type DataTableColumns,
+  NPopconfirm, NPopover, NSelect, NSpace, NSwitch, NTag, NTooltip, useMessage, type DataTableColumns, type SelectOption,
 } from "naive-ui";
 import { apiErrMsg } from "@/api/client";
 import {
   createCertPushTarget, deleteCertPushTarget, listCertPushTargets, previewPushDeviceCerts, pushCertNow,
-  updateCertPushTarget, type CertPushKind, type CertPushTarget, type CertPushTargetIn,
+  updateCertPushTarget, type CertPushKind, type CertPushTarget, type CertPushTargetIn, type DeviceCert,
 } from "@/api/certificates";
 import { trackTask } from "@/composables/useTaskTracker";
 import { fmtDateTime } from "@/utils/datetime";
 import { CancelIcon, DeleteIcon, EditIcon, InfoIcon, PlusIcon, RefreshIcon, SaveIcon, SendIcon } from "@/icons";
 
 const props = defineProps<{ certOptions: { label: string; value: string }[] }>();
-const { t, te } = useI18n();
+const { t, te, locale } = useI18n();
+// 標籤欄固定寬度（依語言）：label-width="auto" 只在第一次打開時算一次，換設備後才出現的欄位
+// 會跟其他列對不齊（10-23「排版不佳、不整齊」）。數值涵蓋各語言最長的標籤一行放得下
+const labelWidth = computed(() => (String(locale.value).startsWith("en") ? 290 : String(locale.value).startsWith("ja") ? 250 : 200));
 const msg = useMessage();
 
 const rows = ref<CertPushTarget[]>([]);
@@ -95,10 +98,10 @@ async function save() {
 
 // OPNsense：列出設備上的憑證讓管理員選要替換哪一張。用表單上的帳密直接讀，不必先存檔
 // （使用者 10-22：「替換設備上的哪一張不能選，正常嗎？」——這欄必填，以前卻要存檔後才讀得到）
-const deviceCerts = ref<{ id: string; name: string; subject: string }[]>([]);
+const deviceCerts = ref<DeviceCert[]>([]);
 const loadingCerts = ref(false);
 const canLoadCerts = computed(() => /^https:\/\/./i.test(f.value.api_url.trim())
-  && ((!!f.value.api_key && !!f.value.api_secret) || !!editing.value?.has_secret));
+  && ((!!f.value.api_key && (f.value.kind !== "opnsense" || !!f.value.api_secret)) || !!editing.value?.has_secret));
 async function loadDeviceCerts() {
   loadingCerts.value = true;
   try {
@@ -110,12 +113,46 @@ async function loadDeviceCerts() {
     if (!deviceCerts.value.length) msg.info(t("certpush.opn_none"));
   } catch (e) { msg.error(apiErrMsg(e)); } finally { loadingCerts.value = false; }
 }
+// 下拉清單每一項：第一行名稱＋狀態，第二行 CN、簽發者、有效期限（使用者 10-23：要看得出狀態與有效日）
+function certExpiry(c: DeviceCert): { text: string; color: string } | null {
+  if (!c.valid_to) return null;
+  const d = new Date(c.valid_to);
+  const day = d.toISOString().slice(0, 10);
+  const days = Math.floor((d.getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return { text: t("certpush.dc_expired", { d: day }), color: "#d03050" };
+  if (days < 30) return { text: t("certpush.dc_expiring", { d: day, n: days }), color: "#f0a020" };
+  return { text: t("certpush.dc_valid_to", { d: day }), color: "" };
+}
+function certStatusTag(c: DeviceCert) {
+  if (c.in_use) return h(NTag, { size: "tiny", type: "success", bordered: false }, () => t(f.value.kind === "pfsense" ? "certpush.dc_webgui" : "certpush.dc_in_use"));
+  if (c.is_user) return h(NTag, { size: "tiny", type: "info", bordered: false }, () => t("certpush.dc_user"));
+  return h(NTag, { size: "tiny", bordered: false }, () => t("certpush.dc_unused"));
+}
+function renderCert(c: DeviceCert) {
+  const exp = certExpiry(c);
+  const meta = [c.subject, c.issuer ? t("certpush.dc_issuer", { v: c.issuer }) : ""].filter(Boolean);
+  return h("div", { style: "display:flex;flex-direction:column;line-height:1.4;padding:3px 0;min-width:0" }, [
+    h("div", { style: "display:flex;align-items:center;gap:6px;min-width:0" }, [
+      h("span", { style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, c.name || c.id), certStatusTag(c)]),
+    h("div", { style: "font-size:12px;opacity:.75;display:flex;gap:10px;flex-wrap:wrap;white-space:nowrap" }, [
+      ...meta.map((m) => h("span", null, m)),
+      exp ? h("span", { style: exp.color ? `color:${exp.color};opacity:1` : "" }, exp.text) : null]),
+  ]);
+}
 const deviceCertOptions = computed(() => {
-  const opts = deviceCerts.value.map((c) => ({ label: `${c.name}${c.subject ? `（${c.subject}）` : ""}`, value: c.id }));
+  const opts: { label: string; value: string; cert?: DeviceCert }[] = deviceCerts.value.map((c) => ({
+    label: `${c.name}${c.subject ? `（${c.subject}）` : ""}`, value: c.id, cert: c }));
   const cur = f.value.options.cert_uuid;
   if (cur && !opts.some((o) => o.value === cur)) opts.unshift({ label: cur, value: cur });
   return opts;
 });
+// 選單裡顯示兩行（狀態、CN、簽發者、到期日）；輸入框裡已選的那一項只顯示一行名稱。
+// render-label 在輸入框與選單都會被呼叫、分不出來，所以改走只作用在選單的 render-option
+function renderCertOption({ node, option }: { node: VNode; option: SelectOption }) {
+  const c = (option as { cert?: DeviceCert }).cert;
+  if (!c) return node;
+  return h(node.type as string, node.props, [renderCert(c)]);
+}
 
 // ── 動作 ──
 const pushing = ref<Set<string>>(new Set());
@@ -201,9 +238,9 @@ const cols = computed<DataTableColumns<CertPushTarget>>(() => [
     <n-data-table :columns="cols" :data="rows" :loading="loading" size="small" :scroll-x="1100"
                   :row-key="(r: CertPushTarget) => r.id" data-testid="certpush-table" />
 
-    <n-modal v-model:show="show" preset="card" style="width:700px;max-width:95vw"
+    <n-modal v-model:show="show" preset="card" :style="{ width: `${labelWidth + 520}px`, maxWidth: '95vw' }"
              :title="editing ? t('certpush.edit') : t('certpush.new')">
-      <n-form label-placement="left" label-width="auto" size="small">
+      <n-form label-placement="left" :label-width="labelWidth" size="small" :style="{ '--cp-label': `${labelWidth}px` }">
         <n-form-item :label="t('cols.name')" required><n-input v-model:value="f.name" data-testid="certpush-name" /></n-form-item>
         <n-form-item :label="t('certpush.certificate')" required>
           <n-select v-model:value="f.certificate_id" :options="props.certOptions" filterable data-testid="certpush-cert" />
@@ -243,8 +280,10 @@ const cols = computed<DataTableColumns<CertPushTarget>>(() => [
           <n-form-item :label="t('certpush.opn_cert')" required>
             <div style="display:flex;gap:8px;width:100%;min-width:0">
               <n-select v-model:value="f.options.cert_uuid" :options="deviceCertOptions" filterable tag size="small"
-                        style="flex:1;min-width:0" :placeholder="t('certpush.opn_pick_ph')" data-testid="certpush-opn-cert" />
-              <n-button size="small" :disabled="!canLoadCerts" :loading="loadingCerts" style="flex:none"
+                        :render-option="renderCertOption" :virtual-scroll="false" :consistent-menu-width="false" style="flex:1;min-width:0" :placeholder="t('certpush.opn_pick_ph')"
+                        data-testid="certpush-opn-cert" />
+              <!-- 全站主題把 small 按鈕設成 34px、small 下拉是 28px：這一列讓按鈕跟著輸入框同高（10-23「高度不一樣」） -->
+              <n-button size="small" :disabled="!canLoadCerts" :loading="loadingCerts" class="cp-row-btn"
                         data-testid="certpush-opn-load" @click="loadDeviceCerts">
                 <template #icon><n-icon :component="RefreshIcon" /></template>{{ t("certpush.opn_load") }}
               </n-button>
@@ -260,6 +299,18 @@ const cols = computed<DataTableColumns<CertPushTarget>>(() => [
         </template>
         <template v-else>
           <n-form-item :label="t('certpush.pf_webgui')"><n-switch v-model:value="f.options.bind_webgui" /></n-form-item>
+          <!-- pfSense 每次推送是新增一張再切過去，不用選替換哪一張；這裡唯讀列出設備上的憑證與哪張在用（10-23） -->
+          <n-form-item :label="t('certpush.pf_certs')">
+            <div style="display:flex;flex-direction:column;gap:6px;width:100%;min-width:0">
+              <n-button size="small" :disabled="!canLoadCerts" :loading="loadingCerts" style="align-self:flex-start"
+                        data-testid="certpush-pf-load" @click="loadDeviceCerts">
+                <template #icon><n-icon :component="RefreshIcon" /></template>{{ t("certpush.opn_load") }}
+              </n-button>
+              <div v-if="deviceCerts.length" class="cp-certs" data-testid="certpush-pf-certs">
+                <component :is="renderCert(c)" v-for="c in deviceCerts" :key="c.id" />
+              </div>
+            </div>
+          </n-form-item>
         </template>
 
         <n-form-item :label="t('certpush.verify')"><n-switch v-model:value="verifyOn" /></n-form-item>
@@ -284,5 +335,8 @@ const cols = computed<DataTableColumns<CertPushTarget>>(() => [
 </template>
 
 <style scoped>
-.cp-hint { font-size: 12px; opacity: .75; margin: -4px 0 12px 150px; line-height: 1.6; }
+/* 全站把 small 按鈕撐到 34px；這裡與同列的 small 下拉清單（28px）對齊 */
+.cp-row-btn { flex: none; --n-height: 28px !important; height: 28px !important; min-height: 28px !important; }
+.cp-certs { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--n-border-color, rgba(128,128,128,.25)); border-radius: 6px; padding: 6px 10px; max-height: 220px; overflow: auto; }
+.cp-hint { font-size: 12px; opacity: .75; margin: -4px 0 12px var(--cp-label, 200px); line-height: 1.6; }
 </style>

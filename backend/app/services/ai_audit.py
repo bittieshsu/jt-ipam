@@ -49,6 +49,8 @@ from app.services.system_config import (
     get_llm_config,
     mark_ai_audit_finished,
     mark_ai_audit_started,
+    record_ai_audit_outcome,
+    remember_ai_audit_run_scope,
 )
 
 SEVERITIES = ("low", "medium", "high")
@@ -103,6 +105,11 @@ class AuditRun:
     findings: int
     skipped: int
     error: str | None = None
+    # 確定性的結果（戰情室與狀態記錄用；error 是給人看的原文，可能夾著模型回應，不往外送）：
+    # completed＝每批都分析完／partial＝有批次失敗但有結果／failed＝沒有可用的結果
+    status: str = "completed"
+    error_code: str | None = None
+    batches: int = 0
 
 
 async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
@@ -196,7 +203,13 @@ async def _collect(session: AsyncSession, user: User) -> dict[str, Any]:
         })
 
     return {"subnets": subnets, "ips": ips, "devices": devices,
-            "empty": not (subnets or ips or devices)}
+            "empty": not (subnets or ips or devices),
+            # 這次實際送進模型的物件（不會送給模型，見 _batches）：戰情室用它判斷模型寫的敘述
+            # 能不能給權限較小的帳號看，以及標出「涵蓋範圍」與取樣上限
+            "_scope": {"subnet_ids": [str(r[0]) for r in sub_rows], "ip_ids": [str(r[0]) for r in ip_rows],
+                       "device_ids": [str(i) for i, _n, _t in dev_rows],
+                       "capped": {"subnets": len(sub_rows) >= MAX_SAMPLE, "ips": len(ip_rows) >= MAX_SAMPLE,
+                                  "devices": len(dev_rows) >= MAX_SAMPLE}}}
 
 
 _PROMPT = """You are reviewing an IP address management (IPAM) inventory for a network team.
@@ -692,22 +705,52 @@ async def _run_audit(
     if since is not None and datetime.now(UTC) - since < RUN_STALE_AFTER:
         raise AuditBusy("已經有一次巡檢正在執行，請等它跑完再試")
     await _emit("collecting")
+    started = datetime.now(UTC)
     snapshot = await _collect(session, user)
     if snapshot.get("empty"):
+        try:
+            await record_ai_audit_outcome(session, at=datetime.now(UTC), outcome={
+                "status": "failed", "error_code": "no_data", "run_id": str(run_id),
+                "started_at": started.isoformat()})
+        except Exception:
+            await session.rollback()
+            log.warning("ai_audit.outcome_mark_failed", exc_info=True)
         return AuditRun(run_id=run_id, findings=0, skipped=0,
-                        error="沒有可見的資料可分析（檢查此帳號的權限範圍）")
+                        error="沒有可見的資料可分析（檢查此帳號的權限範圍）",
+                        status="failed", error_code="no_data")
 
     # 開始打 LLM 之前就記下這次嘗試：之後被 systemd 砍掉、或 LLM 主機在途中掛掉，
     # 排程都不會 5 分鐘後又整個重來（2026-10-12：10-04、10-10 都因此跑了兩次）
-    await mark_ai_audit_started(session, at=datetime.now(UTC))
+    await mark_ai_audit_started(session, at=started)
+    result: AuditRun | None = None
     try:
-        return await _analyze(session, user, run_id, snapshot, _emit, want_progress)
+        result = await _analyze(session, user, run_id, snapshot, _emit, want_progress)
+        return result
     finally:
         try:
-            await mark_ai_audit_finished(session, at=datetime.now(UTC))
+            await _finish(session, run_id, started, snapshot, result)
         except Exception:                      # 收尾失敗不可以蓋掉巡檢本身的結果或例外
             await session.rollback()
             log.warning("ai_audit.finish_mark_failed", exc_info=True)
+
+
+async def _finish(session: AsyncSession, run_id: uuid.UUID, started: datetime,
+                  snapshot: dict[str, Any], result: AuditRun | None) -> None:
+    """記下這次的結果（狀態、錯誤代碼、取樣範圍）。result 是 None＝中途丟出例外（被砍、程式錯誤）＝失敗。"""
+    scope = snapshot.get("_scope") if isinstance(snapshot.get("_scope"), dict) else {}
+    status = result.status if result else "failed"
+    counts = {"subnets": len(scope.get("subnet_ids") or []), "ips": len(scope.get("ip_ids") or []),
+              "devices": len(scope.get("device_ids") or []), "capped": dict(scope.get("capped") or {})} \
+        if scope else None
+    now = datetime.now(UTC)
+    await mark_ai_audit_finished(session, at=now, outcome={
+        "status": status, "error_code": (result.error_code if result else "exception"),
+        "run_id": str(run_id), "started_at": started.isoformat(),
+        "batches": result.batches if result else 0, "failed_batches": result.skipped if result else 0,
+        "scope_counts": counts,
+    })
+    if status in ("completed", "partial") and scope:
+        await remember_ai_audit_run_scope(session, run_id=str(run_id), at=now, scope=scope)
 
 
 async def _analyze(
@@ -729,6 +772,7 @@ async def _analyze(
 
     items: list[dict[str, Any]] = []
     errors: list[str] = []
+    llm_errors = 0                             # 連不上／逾時（其餘的失敗是回應解析不出來）
     for i, batch in enumerate(batches, start=1):
         payload = json.dumps(batch, ensure_ascii=False)
         # 一批可能要跑好幾分鐘。只有批次層級的進度時，畫面會長時間完全不動 ——
@@ -753,11 +797,13 @@ async def _analyze(
                                  num_ctx=cfg.ai_audit_num_ctx,
                                  on_chunk=_on_chunk if want_progress else None)
         except AINotConfigured as exc:
-            return AuditRun(run_id=run_id, findings=0, skipped=0, error=str(exc))
+            return AuditRun(run_id=run_id, findings=0, skipped=0, error=str(exc),
+                            status="failed", error_code="not_configured", batches=total)
         except AIError as exc:
             # 失敗也算跑過一次：不記的話排程每輪都會重試，而一次逾時要等 AUDIT_TIMEOUT，
             # 重試會直接疊在一起打同一台 LLM。等下一個間隔再試就好。
             errors.append(str(exc))
+            llm_errors += 1
             await _emit("analyzing", i, total, error=str(exc))
             continue
 
@@ -774,7 +820,9 @@ async def _analyze(
         # 每一批都失敗 → 這次巡檢是壞的，不能當成「沒發現問題」
         return AuditRun(run_id=run_id, findings=0, skipped=len(errors),
                         error=errors[0] if len(errors) == 1
-                        else f"{len(errors)}/{total} 批分析失敗；第一個錯誤：{errors[0]}")
+                        else f"{len(errors)}/{total} 批分析失敗；第一個錯誤：{errors[0]}",
+                        status="failed", error_code="llm_error" if llm_errors else "parse_error",
+                        batches=total)
 
     await _emit("saving", total, total)
     items = _dedupe(items)[:MAX_FINDINGS]
@@ -793,6 +841,8 @@ async def _analyze(
                f"為避免把沒檢查到的問題誤判為已解決，這次不移除既有發現。"
                f"第一個錯誤：{errors[0]}"
                if errors else None),
+        status="partial" if errors else "completed",
+        error_code="some_batches_failed" if errors else None, batches=total,
     )
 
 

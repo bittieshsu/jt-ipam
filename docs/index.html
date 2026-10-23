@@ -188,6 +188,52 @@
   .shot{display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--line);
     box-shadow:0 6px 22px rgba(15,23,42,0.12)}
   .shot-hero{margin:0 auto;box-shadow:0 18px 50px rgba(15,23,42,0.18);cursor:zoom-in}
+  /* hero 輪播：儀表板 / 戰情室 / 機櫃。外框固定 16:9（三張圖都是 1600x900），換張不會讓版面跳動；
+     說明文字三段疊在同一格，高度取最高的那段，同樣不會跳。 */
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .hcar:focus-visible{outline:none}
+  .hcar:focus-visible .hcar-stage{box-shadow:0 0 0 3px rgba(24,160,88,.45),0 18px 50px rgba(15,23,42,0.18)}
+  .hcar-stage{position:relative;aspect-ratio:16/9;overflow:hidden;border-radius:12px;border:1px solid var(--line);
+    background:#fff;box-shadow:0 18px 50px rgba(15,23,42,0.18);touch-action:pan-y}
+  .hcar-track{display:flex;height:100%;transition:transform .55s cubic-bezier(.4,0,.2,1)}
+  .hcar-slide{flex:0 0 100%;height:100%}
+  .hcar-stage .shot{width:100%;height:100%;object-fit:cover;border:0;border-radius:0;box-shadow:none}
+  /* 左右箭頭：寬螢幕疊在圖的左右兩側、垂直置中（按鈕放在控制列裡，用容器單位算出圖的半高）；
+     手機上圖太小，疊上去會蓋掉內容，改回控制列裡跟圓點排成一列 */
+  .hcar{position:relative;container-type:inline-size}
+  .hcar-btn{position:absolute;top:min(276px,calc((100vw - 40px) * .28125));top:28.125cqw;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;
+    border:1px solid rgba(15,23,42,.10);background:rgba(255,255,255,.9);color:var(--ink);cursor:pointer;
+    display:grid;place-items:center;padding:0;box-shadow:0 4px 14px rgba(15,23,42,.18);transition:.15s;opacity:.85}
+  .hcar-btn:hover,.hcar-btn:focus-visible{background:#fff;color:var(--green-d);opacity:1}
+  .hcar-btn:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(24,160,88,.5),0 4px 14px rgba(15,23,42,.18)}
+  .hcar-prev{left:12px}
+  .hcar-next{right:12px}
+  .hcar-caps{display:grid;margin-top:16px;text-align:center}
+  .hcar-cap{grid-area:1/1;visibility:hidden;opacity:0;transition:opacity .35s}
+  .hcar-cap.on{visibility:visible;opacity:1}
+  .hcar-cap b{display:block;color:var(--ink);font-size:17px;margin-bottom:3px}
+  .hcar-cap span.l{color:var(--muted);font-size:15px;line-height:1.6}
+  .hcar-ctrl{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px}
+  .hcar-dots{display:flex;gap:8px}
+  .hcar-dot{width:10px;height:10px;border-radius:5px;border:0;padding:0;cursor:pointer;background:rgba(15,23,42,.18);transition:.25s}
+  .hcar-dot[aria-current="true"]{width:28px;background:var(--green)}
+  .hcar-dot:focus-visible,.hcar-pause:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+  .hcar-pause{width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--muted);
+    cursor:pointer;display:grid;place-items:center;padding:0}
+  .hcar-pause:hover{color:var(--green-d);border-color:var(--green)}
+  .hcar-pause .i-play{display:none}
+  .hcar.paused .hcar-pause .i-play{display:block}
+  .hcar.paused .hcar-pause .i-pause{display:none}
+  .hcar-pause .l-play{display:none}
+  .hcar.paused .hcar-pause .l-play{display:inline}
+  .hcar.paused .hcar-pause .l-pause{display:none}
+  @media(max-width:560px){
+    .hcar-btn{position:static;transform:none;width:32px;height:32px;opacity:1;box-shadow:none;border-color:var(--line)}
+    .hcar-btn svg{width:16px;height:16px}
+    .hcar-cap b{font-size:15.5px}
+    .hcar-cap span.l{font-size:14px}
+  }
+  @media(prefers-reduced-motion:reduce){.hcar-track,.hcar-cap{transition:none}}
   .screen-row{
     display:flex;align-items:center;gap:34px;margin:0 0 78px;
   }
@@ -274,6 +320,10 @@
   /* 每個產品一個淡框：名稱裡有空格的（Windows DHCP、Palo Alto）才不會被看成兩樣東西（使用者 2026-10-07）。
      細框＋極淡底、小圓角，不做膠囊 */
   .w-v i{font-style:normal;white-space:nowrap;padding:0 7px;border:1px solid var(--line);border-radius:4px;background:#f7faf8}
+  /* 每一項連到整合導入頁的那一節（2026-10-23） */
+  .w-v a.w-i{color:inherit;text-decoration:none;display:inline-flex}
+  .w-v a.w-i:hover i,.w-v a.w-i:focus-visible i{border-color:var(--green);color:var(--green);background:#eef8f2}
+  .w-v a.w-i:focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:4px}
   .w-in .w-k{grid-column:1}
   .w-in .w-v{grid-column:2;margin-right:30px}
   .w-out .w-k{grid-column:4;margin-left:30px}
@@ -452,6 +502,7 @@
       <a href="#ai">AI</a>
       <a href="#install"><span class="zh">安裝</span><span class="en">Install</span><span class="ja">インストール</span></a>
       <a href="adoption.html"><span class="zh">導入流程</span><span class="en">Adoption roadmap</span><span class="ja">導入ガイド</span></a>
+      <a href="integrations.html"><span class="zh">整合導入</span><span class="en">Integrations guide</span><span class="ja">連携ガイド</span></a>
       <a href="features.html"><span class="zh">功能地圖</span><span class="en">Feature map</span><span class="ja">機能マップ</span></a>
       <a href="api.html">API</a>
       <a href="compliance.html"><span class="zh">合規對照</span><span class="en">Compliance</span><span class="ja">コンプライアンス</span></a>
@@ -492,10 +543,41 @@
       <a class="btn btn-primary" href="#install"><span class="zh">一行指令立刻安裝</span><span class="en">Install now in one line</span><span class="ja">一行でいますぐインストール</span></a>
       <a class="btn btn-ghost" href="https://github.com/jasoncheng7115/jt-ipam" target="_blank" rel="noopener"><span class="zh">前往 GitHub 專案</span><span class="en">Go to GitHub project</span><span class="ja">GitHub プロジェクトへ</span></a>
     </div>
-    <!-- hero 大圖(建議放「儀表板」整頁截圖)-->
-    <div class="hero-shot">
-      <img class="shot shot-hero" data-shot="dashboard" src="shots/zh/dashboard.png" loading="lazy"
-           alt="jt-ipam 儀表板 / Dashboard" />
+    <!-- hero 輪播：儀表板 / 戰情室 / 機櫃（截圖由 scripts/docs-shots.mjs 在 demo_dataset.py --busy 的資料上拍）-->
+    <div class="hero-shot hcar" id="heroCar" role="region" aria-roledescription="carousel"
+         aria-labelledby="heroCarLabel" tabindex="0">
+      <span id="heroCarLabel" class="sr-only"><span class="zh">產品畫面</span><span class="en">Product screens</span><span class="ja">製品の画面</span></span>
+      <div class="hcar-stage">
+        <div class="hcar-track" id="heroCarTrack" aria-live="off">
+          <div class="hcar-slide" id="heroSlide1" role="group" aria-roledescription="slide" aria-labelledby="heroCap1t">
+            <img class="shot shot-hero" data-shot="dashboard" src="shots/zh/dashboard.png" width="1600" height="900"
+                 fetchpriority="high" alt="jt-ipam 儀表板 / Dashboard" />
+          </div>
+          <div class="hcar-slide" id="heroSlide2" role="group" aria-roledescription="slide" aria-labelledby="heroCap2t">
+            <img class="shot shot-hero" data-shot="warroom" src="shots/zh/warroom.png" width="1600" height="900"
+                 loading="lazy" alt="jt-ipam 戰情室 / War room" />
+          </div>
+          <div class="hcar-slide" id="heroSlide3" role="group" aria-roledescription="slide" aria-labelledby="heroCap3t">
+            <img class="shot shot-hero" data-shot="hero-rack" src="shots/zh/hero-rack.png" width="1600" height="900"
+                 loading="lazy" alt="jt-ipam 機櫃 / Racks" />
+          </div>
+        </div>
+      </div>
+      <div class="hcar-caps">
+        <p class="hcar-cap on" id="heroCap1"><b id="heroCap1t"><span class="zh">儀表板</span><span class="en">Dashboard</span><span class="ja">ダッシュボード</span></b><span class="l"><span class="zh">全站狀態一頁看完：IP 配置率、即時上下線、90 天可用性與異動趨勢。</span><span class="en">Your whole network on one page: IP usage, live up/down status, 90-day availability and change trends.</span><span class="ja">ネットワーク全体をひとつの画面で。IP の使用率、リアルタイムの稼働状況、90 日間の稼働率と変更の推移が分かります。</span></span></p>
+        <p class="hcar-cap" id="heroCap2"><b id="heroCap2t"><span class="zh">戰情室</span><span class="en">War room</span><span class="ja">ウォールーム</span></b><span class="l"><span class="zh">為牆上電視設計的大螢幕看板，各站台子網路狀態、待處理異常與容量警戒自動輪播。</span><span class="en">A big-screen board for the wall TV: subnet health per site, open anomalies and capacity alerts, rotating on its own.</span><span class="ja">壁掛けテレビ向けの大画面ボード。拠点ごとのサブネットの状態、未対応の異常、容量警告を自動で切り替えて表示します。</span></span></p>
+        <p class="hcar-cap" id="heroCap3"><b id="heroCap3t"><span class="zh">機房與機櫃</span><span class="en">Racks</span><span class="ja">ラック</span></b><span class="l"><span class="zh">整排機櫃的 U 位圖，裝置依類型上色，前後雙面與半 U 都畫得出來，哪裡還有空位一眼就知道。</span><span class="en">Rack elevations for a whole row, colored by device type, front and rear, half-U included; free space stands out at a glance.</span><span class="ja">列全体のラック図。機器は種類ごとに色分けされ、前面/背面やハーフ U にも対応し、空きがひと目で分かります。</span></span></p>
+      </div>
+      <div class="hcar-ctrl">
+        <button type="button" class="hcar-btn hcar-prev" aria-controls="heroCarTrack"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="sr-only"><span class="zh">上一張</span><span class="en">Previous slide</span><span class="ja">前のスライド</span></span></button>
+        <div class="hcar-dots">
+          <button type="button" class="hcar-dot" aria-controls="heroCarTrack" aria-current="true"><span class="sr-only"><span class="zh">儀表板</span><span class="en">Dashboard</span><span class="ja">ダッシュボード</span></span></button>
+          <button type="button" class="hcar-dot" aria-controls="heroCarTrack"><span class="sr-only"><span class="zh">戰情室</span><span class="en">War room</span><span class="ja">ウォールーム</span></span></button>
+          <button type="button" class="hcar-dot" aria-controls="heroCarTrack"><span class="sr-only"><span class="zh">機房與機櫃</span><span class="en">Racks</span><span class="ja">ラック</span></span></button>
+        </div>
+        <button type="button" class="hcar-pause" aria-controls="heroCarTrack"><svg class="i-pause" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg><svg class="i-play" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg><span class="sr-only l-pause"><span class="zh">暫停輪播</span><span class="en">Pause slideshow</span><span class="ja">スライドを一時停止</span></span><span class="sr-only l-play"><span class="zh">繼續輪播</span><span class="en">Resume slideshow</span><span class="ja">スライドを再開</span></span></button>
+        <button type="button" class="hcar-btn hcar-next" aria-controls="heroCarTrack"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><span class="sr-only"><span class="zh">下一張</span><span class="en">Next slide</span><span class="ja">次のスライド</span></span></button>
+      </div>
     </div>
     <div class="pills">
       <span class="pill"><span class="zh">整合多套開源軟體</span><span class="en">Integrates many OSS tools</span><span class="ja">多数の OSS と連携</span></span>
@@ -644,26 +726,26 @@
     <div class="wire" role="figure" aria-label="jt-ipam integration map">
       <div class="w-in">
         <div class="w-head"><span><span class="zh">資料來源</span><span class="en">Sources</span><span class="ja">データソース</span></span><em><span class="zh">唯讀拉取，不改動來源</span><span class="en">read-only pull, never modified</span><span class="ja">読み取りのみ、変更しない</span></em></div>
-        <div class="w-row"><span class="w-k"><span class="zh">防火牆與路由</span><span class="en">Firewalls &amp; routers</span><span class="ja">ファイアウォールとルーター</span></span><span class="w-v"><i>OPNsense</i><i>pfSense</i><i>FortiGate</i><i>Palo Alto</i><i>Check Point</i><i>MikroTik RouterOS</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">DNS</span><span class="en">DNS</span><span class="ja">DNS</span></span><span class="w-v"><i>PowerDNS</i><i>BIND9</i><i>Unbound</i><i>Windows DNS</i><i>Univention UCS</i><i>AdGuard Home</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">DHCP</span><span class="en">DHCP</span><span class="ja">DHCP</span></span><span class="w-v"><i>Windows DHCP</i><i>Kea DHCP</i><i>ISC DHCP</i><i>Technitium DHCP</i><i>ISOinsight</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">監控</span><span class="en">Monitoring</span><span class="ja">監視</span></span><span class="w-v"><i>LibreNMS</i><i>Zabbix</i><i>SNMP</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">虛擬化</span><span class="en">Virtualization</span><span class="ja">仮想化</span></span><span class="w-v"><i>Proxmox VE</i><i>VMware ESXi / vCenter</i><i>Hyper-V / SCVMM</i><i>CubeCOS / OpenStack</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">資安與資產</span><span class="en">Security &amp; inventory</span><span class="ja">セキュリティと資産</span></span><span class="w-v"><i>Wazuh</i><i>OCS Inventory NG</i><i>RustDesk Server</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">參考資料</span><span class="en">Reference data</span><span class="ja">参照データ</span></span><span class="w-v"><i>RIPE</i><i>TWNIC</i><i>MaxMind GeoIP</i><i>IEEE OUI</i><i>Recog</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">匯入與遷移</span><span class="en">Import &amp; migration</span><span class="ja">取り込みと移行</span></span><span class="w-v"><i>phpIPAM</i><i>CSV</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">防火牆與路由</span><span class="en">Firewalls &amp; routers</span><span class="ja">ファイアウォールとルーター</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-opnsense"><i>OPNsense</i></a><a class="w-i" href="integrations.html#ig-pfsense"><i>pfSense</i></a><a class="w-i" href="integrations.html#ig-fortigate"><i>FortiGate</i></a><a class="w-i" href="integrations.html#ig-paloalto"><i>Palo Alto</i></a><a class="w-i" href="integrations.html#ig-checkpoint"><i>Check Point</i></a><a class="w-i" href="integrations.html#ig-mikrotik"><i>MikroTik RouterOS</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">DNS</span><span class="en">DNS</span><span class="ja">DNS</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-powerdns"><i>PowerDNS</i></a><a class="w-i" href="integrations.html#ig-bind9"><i>BIND9</i></a><a class="w-i" href="integrations.html#ig-unbound"><i>Unbound</i></a><a class="w-i" href="integrations.html#ig-windows-dns"><i>Windows DNS</i></a><a class="w-i" href="integrations.html#ig-ucs"><i>Univention UCS</i></a><a class="w-i" href="integrations.html#ig-adguard"><i>AdGuard Home</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">DHCP</span><span class="en">DHCP</span><span class="ja">DHCP</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-windows-dhcp"><i>Windows DHCP</i></a><a class="w-i" href="integrations.html#ig-kea"><i>Kea DHCP</i></a><a class="w-i" href="integrations.html#ig-isc-dhcp"><i>ISC DHCP</i></a><a class="w-i" href="integrations.html#ig-technitium"><i>Technitium DHCP</i></a><a class="w-i" href="integrations.html#ig-isoinsight"><i>ISOinsight</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">監控</span><span class="en">Monitoring</span><span class="ja">監視</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-librenms"><i>LibreNMS</i></a><a class="w-i" href="integrations.html#ig-zabbix"><i>Zabbix</i></a><a class="w-i" href="integrations.html#ig-snmp"><i>SNMP</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">虛擬化</span><span class="en">Virtualization</span><span class="ja">仮想化</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-proxmox"><i>Proxmox VE</i></a><a class="w-i" href="integrations.html#ig-vmware"><i>VMware ESXi / vCenter</i></a><a class="w-i" href="integrations.html#ig-hyperv"><i>Hyper-V / SCVMM</i></a><a class="w-i" href="integrations.html#ig-openstack"><i>CubeCOS / OpenStack</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">資安與資產</span><span class="en">Security &amp; inventory</span><span class="ja">セキュリティと資産</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-wazuh"><i>Wazuh</i></a><a class="w-i" href="integrations.html#ig-ocs"><i>OCS Inventory NG</i></a><a class="w-i" href="integrations.html#ig-rustdesk"><i>RustDesk Server</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">參考資料</span><span class="en">Reference data</span><span class="ja">参照データ</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-ripe"><i>RIPE</i></a><a class="w-i" href="integrations.html#ig-twnic"><i>TWNIC</i></a><a class="w-i" href="integrations.html#ig-geoip"><i>MaxMind GeoIP</i></a><a class="w-i" href="integrations.html#ig-oui"><i>IEEE OUI</i></a><a class="w-i" href="integrations.html#ig-recog"><i>Recog</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">匯入與遷移</span><span class="en">Import &amp; migration</span><span class="ja">取り込みと移行</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-phpipam"><i>phpIPAM</i></a><a class="w-i" href="integrations.html#ig-csv"><i>CSV</i></a></span></div>
       </div>
       <div class="w-core"><span class="w-leds" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i></span><b>jt-ipam</b><small><span class="zh">IPAM 中樞<br>在自家機房</span><span class="en">IPAM hub<br>on-prem</span><span class="ja">IPAM ハブ<br>自社設備内</span></small></div>
       <div class="w-out">
         <div class="w-head"><span><span class="zh">提供給其他系統</span><span class="en">Serves other systems</span><span class="ja">ほかのシステムへ</span></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">記錄補上主機名稱</span><span class="en">Log enrichment</span><span class="ja">ログへのホスト名付与</span></span><span class="w-v"><i>Graylog (Lookup Table)</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">AI</span><span class="en">AI</span><span class="ja">AI</span></span><span class="w-v"><i>LLM Server</i><i>MCP server</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">API</span><span class="en">API</span><span class="ja">API</span></span><span class="w-v"><i>REST API</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">通知</span><span class="en">Notifications</span><span class="ja">通知</span></span><span class="w-v"><i>Email</i><i>Webhook</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">即時通訊</span><span class="en">Chat</span><span class="ja">チャット</span></span><span class="w-v"><i>Telegram</i><i>Slack</i><i>Teams</i><i>Nextcloud Talk</i><i>Zulip</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">記錄補上主機名稱</span><span class="en">Log enrichment</span><span class="ja">ログへのホスト名付与</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-graylog"><i>Graylog (Lookup Table)</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">AI</span><span class="en">AI</span><span class="ja">AI</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-llm"><i>LLM Server</i></a><a class="w-i" href="integrations.html#ig-mcp"><i>MCP server</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">API</span><span class="en">API</span><span class="ja">API</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-rest-api"><i>REST API</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">通知</span><span class="en">Notifications</span><span class="ja">通知</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-email"><i>Email</i></a><a class="w-i" href="integrations.html#ig-webhook"><i>Webhook</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">即時通訊</span><span class="en">Chat</span><span class="ja">チャット</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-im"><i>Telegram</i></a><a class="w-i" href="integrations.html#ig-im"><i>Slack</i></a><a class="w-i" href="integrations.html#ig-im"><i>Teams</i></a><a class="w-i" href="integrations.html#ig-im"><i>Nextcloud Talk</i></a><a class="w-i" href="integrations.html#ig-im"><i>Zulip</i></a></span></div>
         <div class="w-row w-sub"><span class="w-s"><span class="zh">你開啟時才寫回</span><span class="en">Writes back only when you enable it</span><span class="ja">有効にしたときだけ書き戻す</span></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">防火牆別名</span><span class="en">Firewall aliases</span><span class="ja">ファイアウォールのエイリアス</span></span><span class="w-v"><i>OPNsense</i></span></div>
-        <div class="w-row"><span class="w-k"><span class="zh">憑證派送</span><span class="en">Certificate delivery</span><span class="ja">証明書の配布</span></span><span class="w-v"><i>nginx</i><i>Apache</i><i>Proxmox VE</i><i>IIS</i><i>FortiGate</i><i>OPNsense</i><i>Palo Alto</i><i>pfSense</i></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">防火牆別名</span><span class="en">Firewall aliases</span><span class="ja">ファイアウォールのエイリアス</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-opnsense"><i>OPNsense</i></a></span></div>
+        <div class="w-row"><span class="w-k"><span class="zh">憑證派送</span><span class="en">Certificate delivery</span><span class="ja">証明書の配布</span></span><span class="w-v"><a class="w-i" href="integrations.html#ig-cert-agent"><i>nginx</i></a><a class="w-i" href="integrations.html#ig-cert-agent"><i>Apache</i></a><a class="w-i" href="integrations.html#ig-cert-agent"><i>Proxmox VE</i></a><a class="w-i" href="integrations.html#ig-cert-agent"><i>IIS</i></a><a class="w-i" href="integrations.html#ig-cert-push"><i>FortiGate</i></a><a class="w-i" href="integrations.html#ig-cert-push"><i>OPNsense</i></a><a class="w-i" href="integrations.html#ig-cert-push"><i>Palo Alto</i></a><a class="w-i" href="integrations.html#ig-cert-push"><i>pfSense</i></a></span></div>
       </div>
       <span class="w-brk w-brk-l" aria-hidden="true"></span><span class="w-brk w-brk-r" aria-hidden="true"></span>
     </div>
@@ -1163,6 +1245,97 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
     function close(){ lb.classList.remove('on'); lbImg.src=''; }
     lb.addEventListener('click', close);
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') close(); });
+  })();
+
+  // hero 輪播：每 6 秒換一張。滑鼠停在上面、鍵盤焦點在裡面、分頁切到背景、放大檢視開著時都不換；
+  // 系統設定「減少動態效果」時一開始就停住（暫停鍵可以手動開始）。
+  // 每張圖仍是 img[data-shot]，換語言照上面那段一起換；點圖放大也照舊（.hero-shot .shot）。
+  (function(){
+    var car = document.getElementById('heroCar');
+    if (!car) return;
+    var track = document.getElementById('heroCarTrack');
+    var slides = car.querySelectorAll('.hcar-slide');
+    var caps = car.querySelectorAll('.hcar-cap');
+    var dots = car.querySelectorAll('.hcar-dot');
+    var imgs = car.querySelectorAll('.hcar-slide img');
+    var lb = document.getElementById('lightbox');
+    var n = slides.length, idx = 0, timer = null, DELAY = 6000;
+    var hover = false, focused = false, userPaused = false;
+    var mq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    if (mq && mq.matches) userPaused = true;
+
+    function eager(i){ var im = imgs[(i + n) % n]; if (im && im.loading !== 'eager') im.loading = 'eager'; }
+    function running(){
+      return !userPaused && !hover && !focused && !document.hidden;
+    }
+    function schedule(){
+      clearTimeout(timer); timer = null;
+      car.classList.toggle('paused', userPaused);
+      // 自動輪播時不要每換一張就念一次；停下來之後（手動切換）才讓螢幕報讀器讀出新的那張
+      track.setAttribute('aria-live', running() ? 'off' : 'polite');
+      if (!running()) return;
+      timer = setTimeout(function(){
+        if (lb && lb.classList.contains('on')) { schedule(); return; }
+        go(idx + 1);
+      }, DELAY);
+    }
+    function go(i){
+      idx = (i + n) % n;
+      eager(idx); eager(idx + 1);
+      track.style.transform = 'translateX(' + (-100 * idx) + '%)';
+      for (var k = 0; k < n; k++) {
+        var on = k === idx;
+        slides[k].setAttribute('aria-hidden', on ? 'false' : 'true');
+        if (on) slides[k].removeAttribute('inert'); else slides[k].setAttribute('inert', '');
+        caps[k].classList.toggle('on', on);
+        caps[k].setAttribute('aria-hidden', on ? 'false' : 'true');
+        if (on) dots[k].setAttribute('aria-current', 'true'); else dots[k].removeAttribute('aria-current');
+      }
+      schedule();
+    }
+
+    car.querySelector('.hcar-prev').addEventListener('click', function(){ go(idx - 1); });
+    car.querySelector('.hcar-next').addEventListener('click', function(){ go(idx + 1); });
+    Array.prototype.forEach.call(dots, function(d, k){ d.addEventListener('click', function(){ go(k); }); });
+    car.querySelector('.hcar-pause').addEventListener('click', function(){ userPaused = !userPaused; schedule(); });
+    car.addEventListener('keydown', function(e){
+      if (e.key === 'ArrowLeft') { e.preventDefault(); go(idx - 1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); go(idx + 1); }
+    });
+    car.addEventListener('mouseenter', function(){ hover = true; schedule(); });
+    car.addEventListener('mouseleave', function(){ hover = false; schedule(); });
+    car.addEventListener('focusin', function(){ focused = true; schedule(); });
+    car.addEventListener('focusout', function(e){
+      if (!car.contains(e.relatedTarget)) { focused = false; schedule(); }
+    });
+    document.addEventListener('visibilitychange', schedule);
+    if (mq) {
+      var onMq = function(){ if (mq.matches) userPaused = true; schedule(); };
+      if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq);
+    }
+
+    // 觸控滑動：水平滑超過 40px 才算換張（垂直捲動交給瀏覽器，touch-action: pan-y）。
+    // 滑完手指放開時瀏覽器還會補一個 click：吃掉它，不然每滑一次就打開放大檢視
+    var stage = car.querySelector('.hcar-stage'), sx = 0, sy = 0, swiped = false;
+    stage.addEventListener('touchstart', function(e){
+      var t = e.changedTouches[0]; sx = t.clientX; sy = t.clientY;
+    }, { passive: true });
+    stage.addEventListener('touchend', function(e){
+      var t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+        swiped = true; setTimeout(function(){ swiped = false; }, 400);
+        go(idx + (dx < 0 ? 1 : -1));
+      }
+    }, { passive: true });
+    stage.addEventListener('click', function(e){
+      if (swiped) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+
+    // 第一張以外是 lazy：等頁面載完再把其餘幾張也抓下來，第一次換張時才不會先看到空白
+    window.addEventListener('load', function(){
+      setTimeout(function(){ for (var k = 1; k < n; k++) eager(k); }, 1500);
+    });
+    go(0);
   })();
   // 指令區塊：複製按鈕（只複製指令本身，去掉註解）
   (function(){

@@ -13,7 +13,7 @@
  * - 連不上時保留上一次的資料，並標「顯示的是 HH:MM 的資料」，不假裝即時
  * - 進入方式：一般登入，或網址帶 ?display=<顯示權杖>（存進這個分頁後立刻從網址列拿掉）
  */
-import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { keyAction, warroomKeyRows } from "@/utils/warroomKeys";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
@@ -24,6 +24,10 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { nextStep, pad2, pageStep, topicByNumber, topicStep, type Step } from "@/utils/warroom";
 import WrAnomalies from "./WrAnomalies.vue";
+import WrStats from "./WrStats.vue";
+import WrRelations from "./WrRelations.vue";
+import WrAvailability from "./WrAvailability.vue";
+import WrAiAudit from "./WrAiAudit.vue";
 import WrIco from "./WrIco.vue";
 import { startAutoReload, takeResume } from "./autoReload";
 import { WarnIcon } from "@/icons";
@@ -63,12 +67,40 @@ const reduceMotion = computed(() => !!cfg.value?.reduce_motion
   || (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches));
 provide("wrReduceMotion", reduceMotion);
 provide("wrPageDir", dir);                       // 同主題換資料頁：各主題自己的分頁區塊用（paged.ts）
+provide("wrPaused", paused);                     // 主題內自己輪播的區塊（AI 巡檢的焦點）暫停時也要停
 
 const PAGE_COMPONENTS: Record<string, unknown> = {
   overview: WrOverview, capacity: WrCapacity, topology: WrTopology, services: WrServices,
   anomalies: WrAnomalies, assets: WrAssets, collection: WrCollection,
+  stats: WrStats, relations: WrRelations, availability: WrAvailability, ai_audit: WrAiAudit,
 };
 const playlist = computed(() => cfg.value?.pages ?? []);
+/** 頁尾主題列：放得下就每個都寫名稱。放不下時分段收（10-23 使用者：切到有頁碼的主題後就只剩數字）：
+ *  1 縮小項目間距 → 2 字再小一級 → 3 才只讓正在播的寫名稱、其他只留編號（名稱在 title）。
+ *  畫布固定 1920 寬，只跟清單、語言、字型、右邊的頁碼文字有關 */
+const navEl = ref<HTMLElement | null>(null);
+const navLevel = ref(0);
+const navCompact = computed(() => navLevel.value >= 3);
+async function fitNav(from = 0) {
+  for (let lv = from; lv <= 3; lv++) {
+    navLevel.value = lv;
+    await nextTick();
+    const el = navEl.value;
+    if (!el || el.scrollWidth <= el.clientWidth + 1) return;
+  }
+}
+watch([playlist, locale], () => { void fitNav(0); }, { flush: "post" });
+// 右邊的頁碼文字（例如「子網路 01–04 / 8」）出現或變長時可用寬度會變：主題列是 flex:1，寬度只跟右邊有關，不會自己觸發迴圈
+let navObserver: ResizeObserver | null = null;
+watch(navEl, (el) => {
+  navObserver?.disconnect();
+  if (el && typeof ResizeObserver !== "undefined") {
+    let w = el.clientWidth;
+    // 只往收的方向調（從目前這一段往上找）：換到沒有頁碼的主題時不再放回去，免得每換一個主題頁尾就跳一次
+    navObserver = new ResizeObserver(() => { if (el.clientWidth !== w) { w = el.clientWidth; void fitNav(navLevel.value); } });
+    navObserver.observe(el);
+  }
+});
 const numberOf = (key: string) => pad2(playlist.value.indexOf(key) + 1);   // 播放順序（清單可拖拉排序）
 
 let rotateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -213,7 +245,7 @@ onMounted(async () => {
   window.addEventListener("keydown", onKey);
   window.addEventListener("mousemove", onMouse);
   clockTimer = setInterval(() => { now.value = new Date(); }, 15000);
-  void loadFont();
+  void loadFont().then(() => fitNav(0));
   if (!(await ensureAccess())) return;
   try {
     cfg.value = await getWarroomConfig();
@@ -241,6 +273,7 @@ onBeforeUnmount(() => {
   if (operatorTimer) clearTimeout(operatorTimer);
   if (clockTimer) clearInterval(clockTimer);
   stopAutoReload?.();
+  navObserver?.disconnect();
 });
 watch(paused, () => schedule());
 
@@ -291,6 +324,29 @@ const METRICS: Record<string, MetricDef[]> = {
     { key: "agents_stale", label: "warroom.m_agents_stale", tone: "coral" },
     { key: "integrations_failing", label: "warroom.m_integrations_failing", tone: "lilac" },
   ],
+  // 稽核事件是操作紀錄、不是告警：中性色（規格 §2 第 2 點）
+  stats: [
+    { key: "registered_ips", label: "warroom.m_registered_ips", tone: "accent" },
+    { key: "subnets", label: "warroom.st_m_subnets", tone: "lilac" },
+    { key: "sections", label: "warroom.st_m_sections", tone: "lilac" },
+    { key: "audit_24h", label: "warroom.st_m_audit_24h", tone: "ink" },
+  ],
+  availability: [
+    { key: "tracked", label: "warroom.av_m_tracked", tone: "accent" },
+    { key: "down_now", label: "warroom.av_m_down", tone: "coral" },
+    { key: "flapping", label: "warroom.av_m_flapping", tone: "lilac" },
+  ],
+  relations: [
+    { key: "ips", label: "warroom.rl_m_ips", tone: "accent" },
+    { key: "devices", label: "warroom.rl_m_devices", tone: "lilac" },
+    { key: "virt", label: "warroom.rl_m_virt", tone: "lilac" },
+  ],
+  // 三者可重疊（頁內次列寫明不能相加）；沒有可用結果時後端給「—」
+  ai_audit: [
+    { key: "high", label: "warroom.ai_m_high", tone: "coral" },
+    { key: "open", label: "warroom.ai_m_open", tone: "lilac" },
+    { key: "insufficient", label: "warroom.ai_m_insufficient", tone: "ink" },
+  ],
 };
 const metrics = computed(() => (data.value ? METRICS[data.value.key] ?? [] : []));
 /** 長標題（例如英文的 Anomalies and exposure）改成兩行、字小一級，讓三個大指標仍有位置；不再縮更小 */
@@ -302,6 +358,11 @@ const titleLong = computed(() => {
   return w > 10;                                  // 日文「アドレス容量」12 寬曾把指標名稱擠成一字一行
 });
 const metricValue = (k: string) => (data.value?.metrics ? data.value.metrics[k] : null);
+/** 指標是 null 但原因不是權限（09 關係頁的虛擬化物件：沒有設定虛擬化整合）：顯示「未設定」而不是「無權限」 */
+const metricNa = (k: string) => {
+  const st = (data.value?.metrics_state as Record<string, string> | undefined)?.[k];
+  return st === "not_configured" ? t("warroom.rl_na_not_configured") : undefined;
+};
 
 const subLabel = computed(() => {
   const d = data.value;
@@ -348,8 +409,9 @@ const legend = computed<[string, string][]>(() => {
         <Transition :name="transName" mode="out-in">
         <section :key="data.key" class="wr-title">
           <h1 :class="{ long: titleLong }">{{ t(`warroom.title_${data.key}`) }}</h1>
-          <div class="wr-metrics">
-            <WrMetric v-for="m in metrics" :key="m.key" :value="metricValue(m.key)" :label="t(m.label)" :tone="m.tone" />
+          <div class="wr-metrics" :class="{ dense: metrics.length > 3 }">
+            <WrMetric v-for="m in metrics" :key="m.key" :value="metricValue(m.key)" :label="t(m.label)" :tone="m.tone"
+                      :na-text="metricNa(m.key)" />
           </div>
           <div v-if="legend.length" class="wr-legend">
             <div v-for="[s, l] in legend" :key="s"><span class="wr-swatch" :class="`s-${s}`" />{{ t(`warroom.${l}`) }}</div>
@@ -367,10 +429,10 @@ const legend = computed<[string, string][]>(() => {
       <footer class="wr-foot">
         <div v-if="cfg && !paused && !fatal" :key="cycle" class="wr-progress" data-testid="wr-progress"
              :style="{ animationDuration: `${cfg.dwell_seconds}s` }" />
-        <nav class="wr-nav">
+        <nav ref="navEl" class="wr-nav" :class="[`lv${navLevel}`, { compact: navCompact }]" data-testid="wr-nav">
           <button v-for="k in playlist" :key="k" type="button" class="wr-nav__i" :class="{ on: data?.key === k }"
-                  @click="go({ key: k, page: 1 })">
-            <span class="wr-nav__n">{{ numberOf(k) }}</span>{{ t(`warroom.nav_${k}`) }}
+                  :title="t(`warroom.nav_${k}`)" @click="go({ key: k, page: 1 })">
+            <span class="wr-nav__n">{{ numberOf(k) }}</span><span v-if="!navCompact || data?.key === k">{{ t(`warroom.nav_${k}`) }}</span>
           </button>
         </nav>
         <div class="wr-sub">
@@ -442,6 +504,12 @@ const legend = computed<[string, string][]>(() => {
   word-break: keep-all; }
 .wr-metrics { display: flex; gap: 48px; flex: 1; min-width: 0; }
 .wr-metrics > * + * { padding-left: 48px; border-left: 1px solid var(--wr-line); }
+/* 四個指標（08 IP 統計）：數字在上、名稱在下，百萬筆的數字也放得下（不縮主標題） */
+.wr-metrics.dense { gap: 36px; }
+.wr-metrics.dense > * + * { padding-left: 36px; }
+.wr-metrics.dense :deep(.wr-metric) { flex-direction: column; align-items: flex-start; gap: 10px; }
+.wr-metrics.dense :deep(.wr-metric__v) { font-size: 84px; }
+.wr-metrics.dense :deep(.wr-metric__l) { font-size: 24px; max-width: 320px; }
 .wr-legend { display: grid; gap: 6px; font-size: 20px; color: var(--wr-ink); padding-left: 32px; border-left: 1px solid var(--wr-line); }
 .wr-legend > div { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
 .wr-main { padding: 18px 0; min-height: 0; overflow: hidden; }
@@ -477,7 +545,10 @@ const legend = computed<[string, string][]>(() => {
 .wr-help dd { margin: 0; color: var(--wr-muted); }
 .wr-help kbd { font-family: var(--wr-num); font-size: 20px; min-width: 36px; text-align: center; padding: 3px 10px;
   border: 1px solid var(--wr-outline); border-bottom-width: 3px; color: var(--wr-ink); }
-.wr-nav { display: flex; gap: 4px; min-width: 0; }
+.wr-nav { flex: 1 1 auto; display: flex; gap: 4px; min-width: 0; overflow: hidden; }
+.wr-nav.lv1 .wr-nav__i { padding-left: 9px; padding-right: 9px; gap: 8px; }
+.wr-nav.lv2 .wr-nav__i { padding-left: 7px; padding-right: 7px; gap: 6px; font-size: 22px; }
+.wr-nav.compact .wr-nav__i { padding-left: 14px; padding-right: 14px; }
 .wr-nav__i { background: none; border: 0; color: var(--wr-muted); font: inherit; font-size: 25px; padding: 18px 16px 14px; white-space: nowrap;
   border-bottom: 4px solid transparent; cursor: pointer; display: flex; gap: 12px; align-items: baseline; }
 .wr-nav__n { font-family: var(--wr-num); font-variant-numeric: tabular-nums; }

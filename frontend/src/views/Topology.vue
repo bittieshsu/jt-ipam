@@ -23,7 +23,7 @@ import { NAlert,
   NTooltip,
 } from "naive-ui";
 import { NIcon } from "naive-ui";
-import { TopologyIcon, RefreshIcon, FitIcon, ExportIcon } from "@/icons";
+import { TopologyIcon, RefreshIcon, FitIcon, ExportIcon, DevicesIcon, MacIcon, SubnetsIcon } from "@/icons";
 import { useRouter } from "vue-router";
 import cytoscape from "cytoscape";
 import coseBilkent from "cytoscape-cose-bilkent";
@@ -33,7 +33,7 @@ import { usePinnedSubnets } from "@/composables/usePinnedSubnets";
 import { useExportBusy } from "@/composables/useExportBusy";
 import { useFillHeight } from "@/composables/usePageFill";
 import { saveBlob } from "@/utils/saveFile";
-import { assignOwners, gridPositions, nodeLabels, packRows, ringPositions, segmentsFor } from "@/utils/topologyLayout";
+import { assignOwners, gridPositions, multiHomed, nodeLabels, packRows, ringPositions, segmentsFor } from "@/utils/topologyLayout";
 
 cytoscape.use(coseBilkent as any);
 
@@ -164,6 +164,7 @@ const HIDDEN_FIELDS = new Set([
   "source_port", "target_port", "a_endpoint", "b_endpoint", "ip",
   // 分層版面自己的欄位：接入資訊另外排在最上面（selectedRows）
   "dlabel", "parent", "isGroup", "pending", "own", "owner_switch", "owner_port", "owner_direct", "also_learned",
+  "multi_homed", "switches",
 ]);
 
 function displayValue(key: string, val: any): string {
@@ -194,6 +195,7 @@ const selectedRows = computed(() => {
   // 接在哪裡：放最上面。FDB 只能證明「這個 MAC 在那個埠後面」，不等於實體接線 ——
   // 埠上只有這一台才說「埠上只有這台」，其餘標「待交叉確認」（參考設計）
   const access = [
+    ...(d.multi_homed ? [{ key: "multi", label: t("topology.attach_mode"), value: t("topology.multi_homed", { n: d.multi_homed }) }] : []),
     { key: "owner_switch", label: t("topology.owner_switch"), value: String(d.owner_switch) },
     { key: "owner_port", label: t("topology.owner_port"), value: d.owner_port ? String(d.owner_port) : "—" },
     { key: "basis", label: t("topology.relation_basis"), value: t("topology.via_fdb") },
@@ -272,6 +274,15 @@ const ICON_COLOURS: Record<string, string> = {
   storage: "#d97706", workstation: "#0284c7", ipmi: "#db2777", vm: "#7c3aed", vpn_site: "#9333ea", other: "#64748b",
 };
 const iconCache = new Map<string, string>();
+/** 子網路節點的寬度：照標籤實際字寬加左右各 12px（以前寫死 70px，203.0.113.0/24 這種會貼到邊框，10-23） */
+let _measureCtx: CanvasRenderingContext2D | null = null;
+function subnetNodeWidth(label: string): number {
+  _measureCtx ??= document.createElement("canvas").getContext("2d");
+  if (!_measureCtx) return Math.max(70, label.length * 6.5 + 24);
+  _measureCtx.font = `bold 10px ${getComputedStyle(document.body).fontFamily || "sans-serif"}`;
+  return Math.max(70, Math.ceil(_measureCtx.measureText(label).width) + 24);
+}
+
 function iconUri(type: string): string {
   const k = ICON_PATHS[type] ? type : "other";
   let u = iconCache.get(k);
@@ -647,10 +658,13 @@ function buildAccessGroups(input: TopologyData): TopologyData {
   if (!l2.length && !backbone.size) return data;
   const order: string[] = [];
   for (const e of l2) if (!order.includes(e.data.target)) order.push(e.data.target);
-  const owners = assignOwners(l2.map((e) => ({
+  const links = l2.map((e) => ({
     id: e.data.id, source: e.data.source, target: e.data.target, port: e.data.port,
-    direct: e.data.direct, port_mac_count: e.data.port_mac_count,
-  })), order);
+    direct: e.data.direct, port_mac_count: e.data.port_mac_count, mac: e.data.mac,
+  }));
+  // 不同網卡各接一台交換器的（雙接）另外成一組，放在那幾台交換器之間；其餘照舊只歸一台
+  const multi = multiHomed(links, order);
+  const owners = assignOwners(links.filter((l) => !multi.has(l.source)), order);
   const pendingEdges = new Set<string>();
   const ownEdges = new Set<string>();
   const groupOf = new Map<string, string>();
@@ -689,6 +703,38 @@ function buildAccessGroups(input: TopologyData): TopologyData {
     const sw = tr.data.source;
     const allDirect = [...owners.values()].filter((o) => o.switch === sw).every((o) => o.direct);
     if (allDirect) tr.data.evidence = "monitored";
+  }
+  // 雙接群組：一組交換器一個框（「switch-a + switch-b 雙接群組」），每台交換器各拉一條線到框
+  const edgeById = new Map(l2.map((e) => [e.data.id, e]));
+  for (const [host, m] of multi) {
+    m.edges.forEach((id) => ownEdges.add(id));
+    const hn = nodeById.get(host);
+    const sws = m.switches.map((id) => byId.get(id));
+    if (!hn || sws.some((x) => !x)) continue;
+    const es = m.edges.map((id) => edgeById.get(id)!.data);
+    hn.data.multi_homed = m.switches.length;
+    hn.data.owner_switch = sws.map((x) => x!.data.label).join("、");
+    hn.data.owner_port = es.map((e, i) => `${sws[i]!.data.label} ${e.port ?? "—"}${e.nic ? `（${e.nic}）` : ""}`).join("\n");
+    hn.data.owner_direct = es.every((e) => e.direct);
+    hn.data.also_learned = null;
+    if (sws.some((x) => (x!.data.parent ?? null) !== (hn.data.parent ?? null))) continue;
+    const gid = `acc2:${m.switches.join("+")}`;
+    if (!groupOf.has(gid)) {
+      groupOf.set(gid, gid);
+      groups.push({ data: { id: gid, label: t("topology.access_group_multi", { names: sws.map((x) => x!.data.label).join(" + ") }),
+                            type: "access", isGroup: true, parent: sws[0]!.data.parent, switches: m.switches } } as never);
+      for (const sw of m.switches) {
+        trunks.push({ data: { id: `trunk:${sw}:${gid}`, source: sw, target: gid, kind: "trunk", evidence: "learned" } } as never);
+      }
+    }
+    hn.data.parent = gid;
+  }
+  for (const tr of trunks) {
+    if (!String(tr.data.target).startsWith("acc2:")) continue;
+    const members = [...multi.entries()].filter(([, m]) => `acc2:${m.switches.join("+")}` === tr.data.target);
+    const allDirect = members.every(([, m]) => m.edges.map((id) => edgeById.get(id)!.data)
+      .filter((e) => e.target === tr.data.source).every((e) => e.direct));
+    tr.data.evidence = allDirect ? "monitored" : "learned";
   }
   return {
     nodes: [...nodes, ...groups] as never,
@@ -872,7 +918,7 @@ function render(data: TopologyData) {
         selector: 'node[type = "subnet"]',
         style: {
           shape: "round-rectangle",
-          width: 70,
+          width: ((node: any) => subnetNodeWidth(String(node.data("label") ?? ""))) as any,
           height: 28,
           "background-image": "none",
           "background-color": NODE_COLOURS.subnet,
@@ -1087,7 +1133,10 @@ function arrangeSwitchCentric() {
   const centres: string[] = [];
   const seen = new Set<string>();
   const addCentre = (id: string) => { if (!seen.has(id)) { seen.add(id); centres.push(id); } };
-  cy.nodes('[type = "access"]').forEach((g) => addCentre(String(g.id()).slice(4)));
+  cy.nodes('[type = "access"]').forEach((g) => {
+    if (String(g.id()).startsWith("acc:")) addCentre(String(g.id()).slice(4));
+    else (g.data("switches") as string[] | undefined)?.forEach(addCentre);
+  });
   cy.edges('[kind = "l2"]').forEach((e) => {
     addCentre(e.target().id());
     if (e.data("backbone") && e.source().data("type") === "switch") addCentre(e.source().id());
@@ -1132,18 +1181,40 @@ function arrangeSwitchCentric() {
     hostsOf.set(id, kids);
   }
   const colsOf = (n: number) => (n <= 2 ? Math.max(n, 1) : n <= 6 ? 3 : 4);
-  const widthOf = (id: string) => Math.max(1, colsOf(hostsOf.get(id)!.length)) * HOST_DX;
+  // 雙接群組自成一欄，插在它接的交換器中排最後那台的前面（兩台相鄰時就是兩台中間），
+  // 兩台交換器的線斜斜地下來會合、不穿過別的群組框（10-23）
+  const multiOf = new Map<string, any[]>();
+  const columns: { key: string; sw: string | null }[] = [];
+  const multiBefore = new Map<string, string[]>();
+  cy.nodes('[type = "access"]').filter((g) => String(g.id()).startsWith("acc2:")).forEach((g) => {
+    const kids = g.children().filter((n: any) => visible(n) && n.data("type") !== "vm").toArray()
+      .sort((a: any, b: any) => String(a.data("label")).localeCompare(String(b.data("label"))));
+    if (!kids.length) return;
+    const idx = (g.data("switches") as string[]).map((id) => ordered.indexOf(id)).filter((i) => i >= 0);
+    if (!idx.length) return;
+    const last = ordered[Math.max(...idx)];
+    multiOf.set(g.id(), kids);
+    (multiBefore.get(last) ?? multiBefore.set(last, []).get(last)!).push(g.id());
+  });
+  for (const id of ordered) {
+    for (const gid of multiBefore.get(id) ?? []) columns.push({ key: gid, sw: null });
+    columns.push({ key: id, sw: id });
+  }
+  const kidsOf = (c: { key: string; sw: string | null }) => (c.sw ? hostsOf.get(c.sw)! : multiOf.get(c.key)!);
+  const widthOf = (c: { key: string; sw: string | null }) => Math.max(1, colsOf(kidsOf(c).length)) * HOST_DX;
   const GAP = 90;
-  const total = ordered.reduce((a, id) => a + widthOf(id), 0) + GAP * (ordered.length - 1);
+  const total = columns.reduce((a, c) => a + widthOf(c), 0) + GAP * (columns.length - 1);
   let x = -total / 2;
   let lowestY = SW_Y;
-  for (const id of ordered) {
-    const w = widthOf(id);
+  for (const c of columns) {
+    const w = widthOf(c);
     const cx = x + w / 2;
     x += w + GAP;
-    cy.getElementById(id).position({ x: cx, y: SW_Y });
-    placed.add(id);
-    const hosts = hostsOf.get(id)!;
+    if (c.sw) {
+      cy.getElementById(c.sw).position({ x: cx, y: SW_Y });
+      placed.add(c.sw);
+    }
+    const hosts = kidsOf(c);
     const cols = colsOf(hosts.length);
     hosts.forEach((h: any, i: number) => {
       const row = Math.floor(i / cols);
@@ -1484,7 +1555,8 @@ onUnmounted(() => {
             <tbody>
               <tr v-for="row in selectedRows" :key="row.key">
                 <th>{{ row.label }}</th>
-                <td>{{ row.value }}</td>
+                <!-- 雙接的連接埠一條一行（換行字元），不在名稱中間折行 -->
+                <td style="white-space: pre-line">{{ row.value }}</td>
               </tr>
             </tbody>
           </table>
@@ -1503,15 +1575,18 @@ onUnmounted(() => {
             </div>
           </div>
           <template v-if="selectedDeviceId || selectedSubnetId" #action>
-            <n-button v-if="selectedDeviceId" size="small" type="primary" ghost block @click="goDevice">
-              {{ t("topology.open_device") }}
-            </n-button>
-            <n-button v-if="selectedDeviceId && selected?.mac" size="small" block style="margin-top: 6px" @click="goMac">
-              {{ t("topology.open_mac_history") }}
-            </n-button>
-            <n-button v-else size="small" type="primary" ghost block @click="goSubnet">
-              {{ t("topology.open_subnet") }}
-            </n-button>
+            <!-- 按鈕之間留 8px（以前第二顆貼著第一顆，10-23「靠太近」） -->
+            <div class="detail-actions">
+              <n-button v-if="selectedDeviceId" size="small" type="primary" ghost block @click="goDevice">
+                <template #icon><n-icon :component="DevicesIcon" /></template>{{ t("topology.open_device") }}
+              </n-button>
+              <n-button v-if="selectedDeviceId && selected?.mac" size="small" block @click="goMac">
+                <template #icon><n-icon :component="MacIcon" /></template>{{ t("topology.open_mac_history") }}
+              </n-button>
+              <n-button v-else size="small" type="primary" ghost block @click="goSubnet">
+                <template #icon><n-icon :component="SubnetsIcon" /></template>{{ t("topology.open_subnet") }}
+              </n-button>
+            </div>
           </template>
         </n-card>
       </div>
@@ -1522,6 +1597,8 @@ onUnmounted(() => {
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#0d9488" stroke-width="2.5"/></svg>{{ t("topology.legend_neighbor") }}</span>
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#14b8a6" stroke-width="2" stroke-dasharray="5,3"/></svg>{{ t("topology.legend_fdb") }}</span>
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#94a3b8" stroke-width="2" stroke-dasharray="6,4"/></svg>{{ t("topology.legend_pending") }}</span>
+      <!-- 雙接群組：兩台交換器各拉一條線到同一個框（10-23） -->
+      <span class="lg"><svg width="30" height="14"><line x1="3" y1="0" x2="12" y2="8" stroke="#14b8a6" stroke-width="1.6" stroke-dasharray="3,2"/><line x1="27" y1="0" x2="18" y2="8" stroke="#14b8a6" stroke-width="1.6" stroke-dasharray="3,2"/><rect x="8" y="8" width="14" height="5" rx="1.5" fill="none" stroke="#14b8a6" stroke-dasharray="2,1.5"/></svg>{{ t("topology.legend_multi") }}</span>
       <span class="lg"><svg width="26" height="10"><line x1="0" y1="5" x2="26" y2="5" stroke="#9333ea" stroke-width="3" stroke-dasharray="8,4"/></svg>{{ t("topology.legend_vpn") }}</span>
       <span class="lg muted">{{ t("topology.layered_hint") }}</span>
     </div>
@@ -1617,4 +1694,5 @@ onUnmounted(() => {
   white-space: pre-wrap;
   word-break: break-all;
 }
+.detail-actions { display: flex; flex-direction: column; gap: 8px; }
 </style>

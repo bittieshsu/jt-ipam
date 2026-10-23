@@ -63,8 +63,12 @@ test("推送到設備：新增、帳密不外露、刪除", async ({ page, reque
 });
 
 test("新增 OPNsense 目標：範例跟著設備換、存檔前就能讀設備上的憑證、欄位名稱不換行（10-22）", async ({ page }) => {
+  const soon = new Date(Date.now() + 10.5 * 86400000).toISOString();
   await page.route("**/api/v1/cert-push-targets/device-certs/preview", (route) =>
-    route.fulfill({ json: { items: [{ id: "u-web", name: "Web GUI", subject: "fw.example.net" }] } }));
+    route.fulfill({ json: { items: [
+      { id: "u-web", name: "Web GUI", subject: "fw.example.net", in_use: true, issuer: "Local CA", valid_to: soon },
+      { id: "u-old", name: "old-test", subject: "old", in_use: false, valid_to: "2020-01-01T00:00:00Z" },
+    ] } }));
   await login(page);
   await page.goto("/certificates");
   await page.locator(".n-tabs-tab", { hasText: "推送到設備" }).click();
@@ -83,16 +87,56 @@ test("新增 OPNsense 目標：範例跟著設備換、存檔前就能讀設備�
   await modal.locator("input[type=password]").nth(1).fill("s");
   await expect(load).toBeEnabled();
   // 下拉選單與按鈕同高
-  const sel = await page.getByTestId("certpush-opn-cert").boundingBox();
+  const sel = await page.getByTestId("certpush-opn-cert").locator(".n-base-selection").boundingBox();   // 量輸入框本身，不是外層
   const btn = await load.boundingBox();
   expect(Math.abs(sel!.height - btn!.height)).toBeLessThanOrEqual(1);
   await load.click();
   await page.getByTestId("certpush-opn-cert").click();
-  await page.locator(".n-base-select-option", { hasText: "Web GUI" }).click();
-  await expect(page.getByTestId("certpush-opn-cert")).toContainText("Web GUI");
+  // 選單每一項有狀態、簽發者、有效日（10-23），而且兩行都在自己那一格裡、不會疊到下一項
+  const web = page.locator(".n-base-select-option", { hasText: "Web GUI" });
+  await expect(web).toContainText("使用中");
+  await expect(web).toContainText("簽發者 Local CA");
+  await expect(web).toContainText("剩 10 天");
+  await expect(page.locator(".n-base-select-option", { hasText: "old-test" })).toContainText("已過期");
+  const boxes = await page.locator(".n-base-select-option").evaluateAll((els) => els.map((e) => {
+    const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, scroll: e.scrollHeight, h: e.clientHeight };
+  }));
+  for (const b of boxes) expect(b.scroll).toBeLessThanOrEqual(b.h + 1);
+  for (let i = 1; i < boxes.length; i++) expect(boxes[i].top).toBeGreaterThanOrEqual(boxes[i - 1].bottom - 1);
+  await web.click();
+  // 輸入框裡只有一行名稱，高度不變
+  const picked = page.getByTestId("certpush-opn-cert").locator(".n-base-selection");
+  await expect(picked).toHaveText("Web GUI（fw.example.net）");
+  expect((await picked.boundingBox())!.height).toBeLessThanOrEqual(sel!.height + 1);
 
   // 欄位名稱都是一行
   const tall = await modal.locator(".n-form-item-label").evaluateAll((els) =>
     els.filter((e) => e.getBoundingClientRect().height > 30).map((e) => e.textContent));
   expect(tall).toEqual([]);
+});
+
+test("pfSense 目標可以讀出設備上的憑證、標出網頁管理介面用的那張（10-23）", async ({ page }) => {
+  await page.route("**/api/v1/cert-push-targets/device-certs/preview", (route) =>
+    route.fulfill({ json: { items: [
+      { id: "p1", name: "webConfigurator default", subject: "pfSense-abc", in_use: true, valid_to: "2030-01-01T00:00:00Z" },
+      { id: "p2", name: "old-push", subject: "vpn.example.net", in_use: false, issuer: "Let's Encrypt R10", valid_to: "2020-01-01T00:00:00Z" },
+    ] } }));
+  await login(page);
+  await page.goto("/certificates");
+  await page.locator(".n-tabs-tab", { hasText: "推送到設備" }).click();
+  await page.getByTestId("certpush-new").click();
+  await page.getByTestId("certpush-kind").click();
+  await page.locator(".n-base-select-option", { hasText: "pfSense" }).click();
+  const load = page.getByTestId("certpush-pf-load");
+  await expect(load).toBeDisabled();
+  await page.getByTestId("certpush-url").locator("input").fill("https://192.0.2.11");
+  await page.getByTestId("certpush-key").locator("input").fill("k");
+  await expect(load).toBeEnabled();
+  await load.click();
+  const list = page.getByTestId("certpush-pf-certs");
+  await expect(list).toContainText("webConfigurator default");
+  await expect(list).toContainText("網頁管理介面使用中");
+  await expect(list).toContainText("未使用");
+  await expect(list).toContainText("已過期");
+  await expect(list).toContainText("簽發者 Let's Encrypt R10");
 });

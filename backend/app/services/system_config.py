@@ -488,8 +488,79 @@ async def mark_ai_audit_started(session: AsyncSession, *, at: datetime) -> None:
     await _update_ai_audit_state(session, last_run_at=at.isoformat(), running_since=at.isoformat())
 
 
-async def mark_ai_audit_finished(session: AsyncSession, *, at: datetime) -> None:
-    await _update_ai_audit_state(session, running_since=None, finished_at=at.isoformat())
+async def mark_ai_audit_finished(session: AsyncSession, *, at: datetime,
+                                 outcome: dict[str, Any] | None = None) -> None:
+    """收尾：清掉正在跑的標記；有 outcome 時一併記下這次的結果（2026-10-23，戰情室 11 AI 巡檢結果用）。
+
+    outcome 只放**確定性**的欄位：狀態（completed／partial／failed）、粗分類的錯誤代碼、批次數、
+    取樣範圍的數量。**不放錯誤原文**：那裡面可能夾著模型的原始回應，看板與其他畫面都不該拿到。
+    completed／partial 的那一次另外記成「最近一次有結果的巡檢」，失敗的不會蓋掉它 ——
+    巡檢失敗時畫面要能說「顯示的是 X 完成的結果」，而不是把失敗當成沒有發現。
+    """
+    fields: dict[str, Any] = {"running_since": None, "finished_at": at.isoformat()}
+    if outcome:
+        status = outcome.get("status")
+        fields.update({
+            "last_status": status, "last_error_code": outcome.get("error_code"),
+            "last_run_id": outcome.get("run_id"), "last_started_at": outcome.get("started_at"),
+            "last_batches": outcome.get("batches"), "last_failed_batches": outcome.get("failed_batches"),
+        })
+        if status in ("completed", "partial"):
+            fields.update({
+                "completed_at": at.isoformat(), "completed_status": status,
+                "completed_run_id": outcome.get("run_id"),
+                "completed_started_at": outcome.get("started_at"),
+                "completed_scope": outcome.get("scope_counts"),
+                "completed_failed_batches": outcome.get("failed_batches"),
+                "completed_batches": outcome.get("batches"),
+            })
+    await _update_ai_audit_state(session, **fields)
+
+
+async def record_ai_audit_outcome(session: AsyncSession, *, at: datetime, outcome: dict[str, Any]) -> None:
+    """還沒開始打 LLM 就結束的那一次（例如可見範圍內沒有資料）：只記結果，不動上次執行時間與正在跑的標記。"""
+    await _update_ai_audit_state(session, last_status=outcome.get("status"),
+                                 last_error_code=outcome.get("error_code"),
+                                 last_run_id=outcome.get("run_id"), last_started_at=outcome.get("started_at"),
+                                 last_batches=0, last_failed_batches=0, finished_at=at.isoformat())
+
+
+async def get_ai_audit_state(session: AsyncSession) -> dict[str, Any]:
+    """巡檢狀態的原始欄位（唯讀；給戰情室判斷進行中／完成／部分完成／失敗）。"""
+    row = await session.get(SystemSetting, AI_AUDIT_KEY)
+    return dict(row.value) if row and isinstance(row.value, dict) else {}
+
+
+# 最近幾次有結果的巡檢「送進模型的是哪些物件」（子網路、IP、裝置的 id）。
+# 戰情室判斷模型寫的敘述能不能給非完整權限的帳號看：觀看者看得到這次巡檢送進去的全部物件，
+# 敘述裡才不可能夾著他看不到的資料。只留最近幾次（部分完成時舊發現會沿用舊的 run_id）。
+AI_AUDIT_RUNS_KEY = "ai_audit_runs"
+AI_AUDIT_RUNS_KEEP = 3
+
+
+async def remember_ai_audit_run_scope(session: AsyncSession, *, run_id: str, at: datetime,
+                                      scope: dict[str, list[str]]) -> None:
+    row = await session.get(SystemSetting, AI_AUDIT_RUNS_KEY)
+    if row is None:
+        row = SystemSetting(key=AI_AUDIT_RUNS_KEY, value={})
+        session.add(row)
+    runs = [r for r in ((row.value or {}).get("runs") or []) if isinstance(r, dict) and r.get("run_id") != run_id]
+    entry = {"run_id": run_id, "at": at.isoformat(),
+             **{k: [str(x) for x in scope.get(k) or []] for k in ("subnet_ids", "ip_ids", "device_ids")}}
+    row.value = {"runs": [entry, *runs][:AI_AUDIT_RUNS_KEEP]}
+    flag_modified(row, "value")
+    await session.commit()
+
+
+async def get_ai_audit_run_scopes(session: AsyncSession) -> dict[str, dict[str, set[str]]]:
+    """run_id → {subnet_ids, ip_ids, device_ids}（字串集合）。沒記到的巡檢不在裡面。"""
+    row = await session.get(SystemSetting, AI_AUDIT_RUNS_KEY)
+    out: dict[str, dict[str, set[str]]] = {}
+    for r in ((row.value or {}).get("runs") or []) if row and isinstance(row.value, dict) else []:
+        if isinstance(r, dict) and r.get("run_id"):
+            out[str(r["run_id"])] = {k: {str(x) for x in r.get(k) or []}
+                                     for k in ("subnet_ids", "ip_ids", "device_ids")}
+    return out
 
 
 async def get_ai_audit_running_since(session: AsyncSession) -> datetime | None:

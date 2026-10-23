@@ -29,6 +29,7 @@ const tokenDays = ref(365);
 const users = ref<{ label: string; value: string }[]>([]);
 
 const keyRows = computed(() => warroomKeyRows(s.value?.pages?.length || 7));
+const windowOpts = computed(() => ["24h", "7d", "30d", "90d"].map((v) => ({ label: t(`warroom_settings.aw_${v}`), value: v })));
 const groupOpts = computed(() => ["location", "section", "customer"].map((v) => ({ label: t(`warroom_settings.group_${v}`), value: v })));
 const langOpts = computed(() => [
   { label: t("warroom_settings.language_follow"), value: "" },
@@ -221,6 +222,9 @@ onMounted(load);
           </n-form-item>
           <n-form-item :label="t('warroom_settings.group_by')">
             <n-select v-model:value="s.group_by" :options="groupOpts" />
+          </n-form-item>
+          <n-form-item :label="t('warroom_settings.availability_window')">
+            <n-select v-model:value="s.availability_window" :options="windowOpts" data-testid="wrs-availability-window" />
           </n-form-item>
           <n-form-item :label="t('warroom_settings.language')">
             <n-select v-model:value="s.language" :options="langOpts" />

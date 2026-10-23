@@ -270,8 +270,14 @@ export async function pushCertNow(id: string): Promise<{ task_id: string }> {
   const { data } = await apiClient.post<{ task_id: string }>(`/api/v1/cert-push-targets/${id}/push`);
   return data;
 }
-export async function listPushDeviceCerts(id: string): Promise<{ id: string; name: string; subject: string }[]> {
-  const { data } = await apiClient.get<{ items: { id: string; name: string; subject: string }[] }>(
+/** 設備上的一張憑證（OPNsense 選要替換哪一張；pfSense 唯讀看哪張在用） */
+export interface DeviceCert {
+  id: string; name: string; subject: string; in_use?: boolean; is_user?: boolean;
+  issuer?: string | null; valid_from?: string | null; valid_to?: string | null;
+}
+
+export async function listPushDeviceCerts(id: string): Promise<DeviceCert[]> {
+  const { data } = await apiClient.get<{ items: DeviceCert[] }>(
     `/api/v1/cert-push-targets/${id}/device-certs`);
   return data.items;
 }
@@ -280,8 +286,8 @@ export async function listPushDeviceCerts(id: string): Promise<{ id: string; nam
 export async function previewPushDeviceCerts(body: {
   kind: CertPushKind; api_url: string; verify_tls: boolean;
   secret?: { api_key: string; api_secret: string } | null; target_id?: string | null;
-}): Promise<{ id: string; name: string; subject: string }[]> {
-  const { data } = await apiClient.post<{ items: { id: string; name: string; subject: string }[] }>(
+}): Promise<DeviceCert[]> {
+  const { data } = await apiClient.post<{ items: DeviceCert[] }>(
     "/api/v1/cert-push-targets/device-certs/preview", body);
   return data.items;
 }

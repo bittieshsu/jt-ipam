@@ -103,7 +103,8 @@ const cat = (c: string) => anomalyCategoryLabel(c, t, te);
         <div v-for="it in prio.items ?? []" :key="it.id" class="an-item" :class="`sev-${it.severity}`" data-testid="wr-an-item">
           <div class="an-item__rank">{{ pad2(it.rank) }}</div>
           <div class="an-item__body">
-            <WrName :text="it.label || it.ip || '—'" class="an-item__name" />
+            <!-- IP 不會折行：只留一行高（以前預留兩行，加上判斷線索後三張卡超出可用高度，10-23） -->
+            <WrName :text="it.label || it.ip || '—'" :lines="1" class="an-item__name" />
           <WrHints :hints="it.hints" />
             <div class="an-item__meta">
               <div><div class="an-item__k">{{ t("warroom.type") }}</div><div class="an-item__cat"><WrIco :icon="categoryIcon(it.category)" />{{ cat(it.category) }}</div></div>
@@ -145,12 +146,13 @@ const cat = (c: string) => anomalyCategoryLabel(c, t, te);
 .an-ev__l { font-size: 22px; color: var(--wr-muted); white-space: nowrap; }
 .an-side { border-left: 1px solid var(--wr-line); padding-left: 40px; display: flex; flex-direction: column; gap: 16px; min-width: 0;
   min-height: 0; overflow: hidden; }
-.an-list { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
-.an-item { display: grid; grid-template-columns: 112px minmax(0, 1fr); background: var(--wr-panel); min-height: 0; }
+.an-list { display: flex; flex-direction: column; gap: 14px; min-height: 0; flex: 1; }
+/* 三張卡平分可用高度；內容太多時在卡片內收起，不壓到下一張 */
+.an-item { display: grid; grid-template-columns: 112px minmax(0, 1fr); background: var(--wr-panel); min-height: 0; flex: 1 1 0; overflow: hidden; }
 .an-item__rank { display: flex; align-items: center; justify-content: center; background: var(--wr-lilac); color: #101216;
   font-family: var(--wr-num); font-size: 64px; font-weight: 700; }
 .sev-high .an-item__rank { background: var(--wr-coral); }
-.an-item__body { padding: 14px 22px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.an-item__body { padding: 12px 22px; display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
 .an-item__name { font-size: 28px; font-weight: 700; font-family: var(--wr-num); }
 .an-item__meta { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 28px; }
 .an-item__k { font-size: 18px; color: var(--wr-muted); }

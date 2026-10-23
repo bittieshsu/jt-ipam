@@ -977,16 +977,9 @@ async def get_address_relations(
         cluster = await session.get(VirtCluster, vm.cluster_id) if vm.cluster_id else None
         csub = cluster.name if cluster is not None else None
         plat = (cluster.type if cluster is not None else None) or "proxmox"
-        node_dev: Device | None = await session.get(Device, vm.device_id) if vm.device_id else None
-        if node_dev is None and vm.node:
-            # PVE node host 名稱 → 對到 jt-ipam 的實體裝置（比對 name，再比對 fqdn）
-            node_dev = (await session.execute(
-                select(Device).where(func.lower(Device.name) == vm.node.lower()).limit(1)
-            )).scalar_one_or_none()
-            if node_dev is None:
-                node_dev = (await session.execute(
-                    select(Device).where(func.lower(Device.fqdn) == vm.node.lower()).limit(1)
-                )).scalar_one_or_none()
+        # PVE node host 名稱 → 對到 jt-ipam 的實體裝置（VM 直接連結，否則比對 name，再比對 fqdn）
+        from app.services.relation_chain import vm_host_device
+        node_dev, _how = await vm_host_device(session, vm)
         if node_dev is not None and node_dev.id != skip_id:
             await _device_tail(node_dev, sub=csub, node_type="vmnode", platform=plat)
         elif vm.node:

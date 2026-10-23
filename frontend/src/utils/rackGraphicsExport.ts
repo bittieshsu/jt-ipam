@@ -10,7 +10,7 @@
 //     （rack_vslot）更是完全沒有 → 並排的兩台互相蓋住、疊放的看不出來。
 //   - 層架被當成機櫃畫：沒有層板、每層一樣高、放在頂板上面的那台整個不見。
 // 現在幾何直接吃後端給的 render_* 像素值，與畫面同一套。
-import { rackTypeColor as colorFor } from "@/utils/rackColors";
+import { RACK_OTHER_COLOR, rackTypeColor as colorFor } from "@/utils/rackColors";
 import { boardList } from "@/utils/rackSlots";
 import { finishColors, normalizeFinish, PLY_COLOR, ANGLE_HOLE_PITCH_PX, ANGLE_PLY_PX } from "@/utils/rackFinish";
 import { saveBlob } from "@/utils/saveFile";
@@ -336,7 +336,14 @@ export function buildRacksSvg(
       if (!b) continue;
       const x = rackLeft + b.x;
       const y = top + b.y;
-      p.push(`<rect x="${x + 1}" y="${y + 1}" width="${Math.max(1, b.w - 2)}" height="${Math.max(1, b.h - 2)}" fill="${colorFor(dev.type)}" stroke="rgba(0,0,0,0.3)"/>`);
+      // 「其他」與沒分類的：灰底加斜紋，跟畫面與對外嵌入 SVG（rack_svg.py 的 rd-other）一樣
+      let fill = colorFor(dev.type);
+      if (fill === RACK_OTHER_COLOR) {
+        defs.add(`<pattern id="rd-other" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">`
+          + `<rect width="11" height="11" fill="${RACK_OTHER_COLOR}"/><rect width="5" height="11" fill="rgba(255,255,255,0.22)"/></pattern>`);
+        fill = "url(#rd-other)";
+      }
+      p.push(`<rect x="${x + 1}" y="${y + 1}" width="${Math.max(1, b.w - 2)}" height="${Math.max(1, b.h - 2)}" fill="${fill}" stroke="rgba(0,0,0,0.3)"/>`);
       const narrow = b.w < colW - 1;
       const a = nameAlign;
       const tx = narrow ? x + b.w / 2

@@ -11,7 +11,7 @@ import {
   NProgress, NPopover, NInput, NSelect,
   useMessage, type DataTableColumns,
 } from "naive-ui";
-import { TasksIcon, RefreshIcon, PendingIcon, ListIcon, SearchIcon } from "@/icons";
+import { TasksIcon, RefreshIcon, PendingIcon, ListIcon, SearchIcon, CopyIcon } from "@/icons";
 import { listTaskKinds, listTasks, type BackgroundTask } from "@/api/tasks";
 import { autoSort } from "@/composables/useTableSort";
 import ColumnPicker from "@/components/ColumnPicker.vue";
@@ -213,6 +213,19 @@ const allHistoryCols = computed<DataTableColumns<BackgroundTask>>(() => autoSort
         {
           trigger: () => trigger,
           default: () => h("div", { style: "font-size: 12px;" }, [
+            // 錯誤訊息常常很長、要貼給別人看：一鍵複製（含原始資料；10-23）
+            h("div", { style: "display: flex; justify-content: flex-end; margin-bottom: 6px;" }, [
+              h(NButton, {
+                size: "tiny", secondary: true, "data-testid": "task-detail-copy",
+                onClick: async (e: MouseEvent) => {
+                  e.stopPropagation();
+                  try {
+                    await navigator.clipboard.writeText(rawJson ? `${detailTxt}\n\n${rawJson}` : detailTxt);
+                    msg.success(t("common.copied"));
+                  } catch { msg.error(t("common.fail")); }
+                },
+              }, { icon: () => h(NIcon, { component: CopyIcon }), default: () => t("common.copy") }),
+            ]),
             h("div", { style: "margin-bottom: 8px; white-space: pre-wrap; word-break: break-word;" }, detailTxt),
             rawJson
               ? h("details", null, [

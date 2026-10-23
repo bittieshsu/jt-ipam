@@ -35,7 +35,7 @@ import { useRoute, useRouter } from "vue-router";
 import { apiClient, apiErrMsg } from "@/api/client";
 import RackDiagram from "@/components/RackDiagram.vue";
 import RackRoomToolbar from "@/components/RackRoomToolbar.vue";
-import { RACK_DEVICE_TYPES, rackTypeColor } from "@/utils/rackColors";
+import { RACK_DEVICE_TYPES, rackTypeFill } from "@/utils/rackColors";
 import RackFloorPlan from "@/components/RackFloorPlan.vue";
 import {
   getRackDiagram, getRackEmbedConfig, rackEmbedUrl, revealRackEmbedToken,
@@ -899,7 +899,7 @@ function doMergedExport(key: string) {
             </div>
             <div class="rack-legend-shared">
               <span v-for="ty in RACK_DEVICE_TYPES" :key="ty" class="legend-item"
-                    :style="{ background: rackTypeColor(ty) }">{{ ty }}</span>
+                    :style="{ background: rackTypeFill(ty) }">{{ ty }}</span>
             </div>
           </n-card>
           <!-- 各自一張卡片（預設） -->
@@ -915,7 +915,7 @@ function doMergedExport(key: string) {
             <!-- 整排機櫃共用一個圖例（不用每櫃都重複） -->
             <div class="rack-legend-shared">
               <span v-for="ty in RACK_DEVICE_TYPES" :key="ty" class="legend-item"
-                    :style="{ background: rackTypeColor(ty) }">{{ ty }}</span>
+                    :style="{ background: rackTypeFill(ty) }">{{ ty }}</span>
             </div>
           </template>
         </template>

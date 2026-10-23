@@ -16,6 +16,12 @@
  *       --base http://127.0.0.1:5200 --user admin --pass '...' \
  *       --out ../docs/shots
  *
+ * 拍出來是 2 倍解析度（deviceScaleFactor 2）。放進 docs/shots 之前要縮成 1600 寬、轉成 256 色調色盤
+ * （每張約 70–300 KB），例如 Pillow：`im.resize((1600, h)).quantize(256)`。
+ *
+ * 首頁輪播的三張（dashboard、warroom、hero-rack）要在 `demo_dataset.py --busy` 灌過的資料庫上拍，
+ * 其他的在沒有加 --busy 的資料上拍：`--only dashboard,warroom,hero-rack` 分開跑。
+ *
  * 需要 frontend/node_modules 裡的 @playwright/test（`pnpm exec playwright install chromium`
  * 已經裝過瀏覽器）。跑之前先記下既有的 chromium 行程，跑完只關自己開的 ——
  * 這台機器是共用的，別的專案可能正在跑它的 e2e。
@@ -60,8 +66,63 @@ const VIEWPORT = { width: 1600, height: 900 };
  */
 const SHOTS = [
   {
+    // 官網首頁輪播第一張。要在 `demo_dataset.py --busy --db-url ...` 灌過的資料庫上拍
+    // （連同 warroom、hero-rack：`--only dashboard,warroom,hero-rack`）：預設資料只有 39 筆 IP，
+    // 拍出來每一塊都是空的，看起來像沒人在用的系統。
     name: "dashboard",
-    async go(page) { await page.goto(`${BASE}/`); await settle(page, 2500); },
+    async go(page) {
+      await page.goto(`${BASE}/`);
+      await settle(page, 2500);
+      // 可用性追蹤的長條是另外抓的（釘選的 IP 逐一查）：等它畫出來，而且要是中型站台那份資料
+      await page.locator("text=/198\\.51\\.100\\.1\\b/").first().waitFor({ timeout: 15_000 });
+      const text = await page.locator("main, .n-layout-content").first().innerText();
+      if (!/\b1,\d{3}\b/.test(text)) throw new Error("儀表板的 IP 數不到一千：先跑 demo_dataset.py --busy");
+    },
+  },
+  {
+    // 首頁輪播第二張：戰情室（電視看板）。照電視的 1920×1080 拍，之後跟其他圖一樣縮成 1600 寬。
+    // 主題自動輪播（預設每 20 秒換一頁），所以進來就拍，不按任何鍵（按空白鍵暫停會在畫面上留下暫停標示）
+    name: "warroom",
+    viewport: { width: 1920, height: 1080 },
+    async go(page) {
+      await page.goto(`${BASE}/warroom`);
+      await page.locator('[data-testid="wr-group"]').first().waitFor({ timeout: 15_000 });
+      await page.locator('[data-testid="wr-prio"]').first().waitFor({ timeout: 15_000 });
+      await page.waitForTimeout(1500);
+      const text = await page.locator("body").innerText();
+      for (const n of ["Tokyo DC", "Taipei HQ", "Osaka Site"]) {
+        if (!text.includes(n)) throw new Error(`戰情室總覽缺 ${n}（先跑 demo_dataset.py --busy）`);
+      }
+    },
+  },
+  {
+    // 首頁輪播第三張：機房的整排機櫃。與 rack 那張不同：這張在中型站台資料上拍、整排縮小到
+    // 42U 整座看得完，平面圖捲出畫面外，三座機櫃佔滿整張圖
+    name: "hero-rack",
+    async go(page) {
+      await page.evaluate(() => localStorage.setItem("jt.rackRoomZoom", "0.6"));
+      await page.goto(`${BASE}/racks`);
+      await settle(page, 1500);
+      await page.locator(".n-base-selection").first().click();
+      await page.locator(".n-base-select-option", { hasText: "Tokyo DC" }).first().click();
+      await settle(page, 2500);
+      const row = page.locator(".rack-row").first();
+      const text = await row.innerText();
+      for (const n of ["TYO-R01", "TYO-R02", "TYO-R03", "TYO-R04", "vm-host-01", "spine-sw-01"]) {
+        if (!text.includes(n)) throw new Error(`機房沒有切換成功或資料不是中型站台（缺 ${n}）`);
+      }
+      // 把整排機櫃上方的工具列捲到畫面頂端（平面圖在它上面，捲出畫面外）
+      await page.evaluate(() => {
+        const r = document.querySelector(".rack-row");
+        const bar = r?.previousElementSibling || r;
+        bar.scrollIntoView({ block: "start" });
+      });
+      await page.waitForTimeout(900);
+    },
+    async after(page) {
+      // 縮放比例存在 localStorage：不清掉的話，同一輪後面的 rack 那張也會是縮小的
+      await page.evaluate(() => localStorage.removeItem("jt.rackRoomZoom"));
+    },
   },
   {
     name: "subnet",
@@ -296,7 +357,8 @@ async function api(page, path_, init = {}) {
       ...i,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        // 存取權杖在 sessionStorage（2026-10-09 起；以前在 localStorage，舊寫法拿到 null → 401）
+        Authorization: `Bearer ${sessionStorage.getItem("access_token")}`,
         ...(i.headers || {}),
       },
     });
@@ -364,6 +426,9 @@ try {
       } catch (e) {
         // 一張拍不到不該讓其他的也不拍 —— 但一定要說出是哪一張
         console.error(`  ! ${short}/${shot.name}: ${e.message.split("\n")[0]}`);
+      } finally {
+        // 拍完（或拍失敗）要還原的東西，例如這張改過的 localStorage
+        if (shot.after) await shot.after(page).catch(() => {});
       }
     }
     await ctx.close();

@@ -75,11 +75,12 @@ function make(namespace: string) {
     allPinned.value[namespace] = [...ids.value];
     void persistAll();
   }
-  /** 整個換掉（儀表板機櫃卡片的設定：挑了哪幾個就是哪幾個） */
-  function setAll(next: string[]): void {
+  /** 整個換掉（儀表板機櫃卡片的設定：挑了哪幾個就是哪幾個）。
+   *  回傳寫回後端的 Promise：要等存好才重新載入的畫面（儀表板 IP 使用率）可以 await。 */
+  function setAll(next: string[]): Promise<void> {
     ids.value = [...new Set(next.map(String))];
     allPinned.value[namespace] = [...ids.value];
-    void persistAll();
+    return persistAll();
   }
   /** 把釘選的排到最前面（穩定排序，其餘維持原順序） */
   function sortPinnedFirst<T extends { id: string }>(rows: T[]): T[] {

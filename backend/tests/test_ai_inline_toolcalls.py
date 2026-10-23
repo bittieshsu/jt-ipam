@@ -15,10 +15,10 @@ from app.services.ai import (
 
 
 def test_gemma_call_syntax_recovered_to_oui_lookup():
-    s = "call:ouilookup(mac:</~/>3c:ec:ef:7e:76:43</~/>)<toolcall>"
+    s = "call:ouilookup(mac:</~/>02:00:5e:10:00:43</~/>)<toolcall>"
     assert _looks_like_tool_leak(s) is True
     calls = _inline_tool_calls(s, None)
-    assert calls == [{"function": {"name": "oui_lookup", "arguments": {"mac": "3c:ec:ef:7e:76:43"}}}]
+    assert calls == [{"function": {"name": "oui_lookup", "arguments": {"mac": "02:00:5e:10:00:43"}}}]
 
 
 def test_json_tool_call_recovered():
@@ -41,7 +41,7 @@ def test_unknown_tool_name_not_accepted():
 
 
 def test_allowed_filter_blocks_disallowed_tool():
-    s = "call:oui_lookup(mac:</~/>3c:ec:ef:7e:76:43</~/>)<toolcall>"
+    s = "call:oui_lookup(mac:</~/>02:00:5e:10:00:43</~/>)<toolcall>"
     assert _inline_tool_calls(s, allowed=set()) == []  # 該使用者無可用工具
 
 

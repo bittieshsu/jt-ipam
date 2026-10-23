@@ -95,7 +95,7 @@ function go(n: RelationNode) {
           <n-icon :size="13"><component :is="ICONS[n.type]" /></n-icon>
           <span>{{ nodeTypeLabel(n) }}</span>
         </div>
-        <div class="rel-label">{{ n.label }}</div>
+        <div class="rel-label">{{ n.label }}<span v-if="n.more" class="rel-more" data-testid="rel-more">{{ t("relations.more_ips", { n: n.more }) }}</span></div>
         <div v-if="n.sub" class="rel-sub">{{ n.sub }}</div>
       </div>
       <!-- 下一格要換行時，本格（該列最右）右邊也放一個往右箭頭 -->
@@ -155,4 +155,6 @@ function go(n: RelationNode) {
   color: var(--primary-color, #18a058); font-size: 18px; font-weight: 700;
   align-self: center;
 }
+/* 裝置還有其他 IP（關係鏈只走一條，用主要 IP 或作業系統那個）：小字標出來，免得以為只有這一個 */
+.rel-more { font-size: 11px; font-weight: 400; opacity: .7; margin-left: 6px; white-space: nowrap; }
 </style>

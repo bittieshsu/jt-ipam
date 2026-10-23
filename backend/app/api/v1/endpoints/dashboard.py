@@ -30,6 +30,8 @@ from app.models.audit import AuditLog
 from app.models.section import Section
 from app.models.subnet import Subnet
 from app.schemas.base import StrictModel
+from app.services.dashboard_subnet_usage import PIN_NAMESPACE as USAGE_PIN_NAMESPACE
+from app.services.dashboard_subnet_usage import SubnetUsageCards, usage_cards
 from app.services.permission import filter_visible, visible_ids
 from app.services.subnet import host_count
 
@@ -543,3 +545,16 @@ async def overview(
         activity_trend_filter=trend_filter,
         rack_usage=rack_usage,
     )
+
+
+@router.get("/subnet-usage", response_model=SubnetUsageCards)
+async def subnet_usage(
+    user: CurrentUser,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SubnetUsageCards:
+    """「IP 使用率」卡片：使用者自選（pinned["usage_subnets"]，最多 4 個）或自動挑使用率最高的 4 個。
+    只回這個人看得到的子網路（偏好裡留著看不到的 id 一律略過）。"""
+    from app.models.user import UserPreference
+    pref = await session.get(UserPreference, user.id)
+    raw = ((pref.pinned or {}).get(USAGE_PIN_NAMESPACE) if pref is not None else None) or []
+    return await usage_cards(session, user, raw if isinstance(raw, list) else [])

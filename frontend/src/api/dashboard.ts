@@ -50,6 +50,30 @@ export interface DashboardOverview {
   rack_usage: { rack_id: string; name: string; used_u: number; total_u: number; pct: number; kind?: string }[];
 }
 
+/** 「IP 使用率」卡片的一個子網路（數字跟子網路清單頁同一個定義） */
+export interface UsageSubnet {
+  subnet_id: string;
+  cidr: string;
+  description: string | null;
+  customer_label: string | null;
+  ip_version: 4 | 6;
+  used: number;
+  total: number;
+  used_pct: number;
+}
+
+export interface SubnetUsageCards {
+  /** pinned＝使用者自選（pinned["usage_subnets"]）；auto＝沒選，自動挑使用率最高的 */
+  mode: "pinned" | "auto";
+  max: number;
+  items: UsageSubnet[];
+}
+
+export async function getSubnetUsageCards(): Promise<SubnetUsageCards> {
+  const { data } = await apiClient.get<SubnetUsageCards>("/api/v1/dashboard/subnet-usage");
+  return data;
+}
+
 export async function getOverview(): Promise<DashboardOverview> {
   const { data } = await apiClient.get<DashboardOverview>("/api/v1/dashboard/overview");
   return data;

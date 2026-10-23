@@ -16,7 +16,7 @@ import RackDiagram from "@/components/RackDiagram.vue";
 import CardTitle from "@/components/CardTitle.vue";
 import { getRackDiagram } from "@/api/racks";
 import { usePinned } from "@/composables/usePinned";
-import { RACK_DEVICE_TYPES, rackTypeColor } from "@/utils/rackColors";
+import { RACK_DEVICE_TYPES, rackTypeFill } from "@/utils/rackColors";
 import { RacksIcon, SettingsIcon } from "@/icons";
 
 const props = defineProps<{
@@ -159,7 +159,7 @@ const rackOptions = computed(() => props.racks.map((r) => ({
       </div>
       <div class="dr-foot">
         <span class="dr-legend">
-          <span v-for="ty in RACK_DEVICE_TYPES" :key="ty" class="dr-chip" :style="{ background: rackTypeColor(ty) }">{{ t(`devices.type_${ty}`) }}</span>
+          <span v-for="ty in RACK_DEVICE_TYPES" :key="ty" class="dr-chip" :style="{ background: rackTypeFill(ty) }">{{ t(`devices.type_${ty}`) }}</span>
         </span>
         <a v-if="wanted.length > shown.length" class="dr-more" @click="openRacksPage">
           {{ t("dashboard.racks_more", { n: wanted.length - shown.length }) }}

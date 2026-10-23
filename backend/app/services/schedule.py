@@ -121,3 +121,29 @@ def _previous_occurrence(
         if passed:
             return max(passed)
     return None
+
+
+def next_occurrence(
+    times: list[str], now: datetime | None = None, *, frequency: str = "daily",
+    weekdays: list[int] | None = None, month_day: int | None = None,
+) -> datetime | None:
+    """下一個還沒到的排定時刻（戰情室顯示「下次排程」用）；沒有有效排程回 None。
+
+    只回「排定的時刻」：實際執行由約 5 分鐘一輪的 timer 觸發，所以會在這個時刻之後幾分鐘內開始。
+    間隔模式（interval）沒有固定時刻，不在這裡推算。
+    """
+    if frequency == "interval":
+        return None
+    hms = [hm for hm in (_parse_hhmm(t) for t in times) if hm is not None]
+    if not hms or (frequency == "weekly" and not weekdays):
+        return None
+    now = now or _local_now()
+    for ahead in range(400):
+        day = now + timedelta(days=ahead)
+        if not _runs_on(day, frequency, weekdays, month_day):
+            continue
+        slots = [day.replace(hour=h, minute=m, second=0, microsecond=0) for h, m in hms]
+        upcoming = [t for t in slots if t > now]
+        if upcoming:
+            return min(upcoming)
+    return None

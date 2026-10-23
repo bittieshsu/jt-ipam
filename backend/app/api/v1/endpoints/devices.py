@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+import re
 import uuid
 from typing import Annotated, Any
 from urllib.parse import urlsplit, urlunsplit
@@ -22,6 +24,9 @@ from app.models.vlan import VLAN, DeviceVLAN
 from app.schemas.base import Paginated, StrictModel
 from app.schemas.device import DeviceCreate, DeviceRead, DeviceUpdate
 from app.services.custom_field import CustomFieldError, validate_custom_fields
+
+#: BMC 的主機名稱（同 device_kind_knowledge 的判讀）：關係鏈沒設主要 IP 時排在後面
+_BMC_HOST = re.compile(r"\b(?:idrac|ilo|ipmi|bmc|drac|xcc|imm|cimc|irmc)\b", re.I)
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -444,15 +449,8 @@ async def get_device_relations(
                     select(VirtualMachine).where(VirtualMachine.primary_ip_id.in_(ip_ids)).limit(1)  # bounded: IPs of one device
                 )).scalar_one_or_none()
         if vm is not None:
-            node_dev = await session.get(Device, vm.device_id) if vm.device_id else None
-            if node_dev is None and vm.node:
-                node_dev = (await session.execute(
-                    select(Device).where(_func.lower(Device.name) == vm.node.lower()).limit(1)
-                )).scalar_one_or_none()
-                if node_dev is None:
-                    node_dev = (await session.execute(
-                        select(Device).where(_func.lower(Device.fqdn) == vm.node.lower()).limit(1)
-                    )).scalar_one_or_none()
+            from app.services.relation_chain import vm_host_device
+            node_dev, _how = await vm_host_device(session, vm)
             cluster = await session.get(VirtCluster, vm.cluster_id) if vm.cluster_id else None
             csub = cluster.name if cluster is not None else None
             # 平台要跟著節點走：關係圖原本一律標成「PVE 節點」並連到 PVE 那一頁，
@@ -480,15 +478,21 @@ async def get_device_relations(
     chain.append({"type": "device", "id": str(dev.id), "label": dev.name})
     # 主要 IP（沒設就抓任一連到本裝置的 IP）→ 子網路 → 區段
     ip = None
+    linked = list((await session.execute(
+        select(IPAddress).where(IPAddress.device_id == dev.id)
+    )).scalars().all())
     if dev.primary_ip_id:
         ip = await session.get(IPAddress, dev.primary_ip_id)
-    if ip is None:
-        ip = (await session.execute(
-            select(IPAddress).where(IPAddress.device_id == dev.id).limit(1)
-        )).scalar_one_or_none()
+    if ip is None and linked:
+        # 沒設主要 IP：主機名稱像 BMC（iDRAC／iLO／IPMI…）的排後面，其餘照位址排（10-23 客戶：
+        # 伺服器的作業系統 IP 與 iDRAC 都連到同一台，以前 limit(1) 沒排序，關係圖抓到 iDRAC）
+        ip = min(linked, key=lambda a: (bool(_BMC_HOST.search(re.sub(r"[-_.]", " ", a.hostname or ""))),
+                                        ipaddress.ip_address(str(a.ip).split("/")[0])))
     if ip is not None:
+        more = sum(1 for a in linked if a.id != ip.id)
         chain.append({"type": "ip", "id": str(ip.id),
-                      "label": str(ip.ip).split("/")[0], "sub": ip.hostname})
+                      "label": str(ip.ip).split("/")[0], "sub": ip.hostname,
+                      **({"more": more} if more else {})})
         if ip.subnet_id:
             sn = await session.get(Subnet, ip.subnet_id)
             if sn is not None:

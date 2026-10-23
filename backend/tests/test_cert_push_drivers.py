@@ -180,7 +180,8 @@ async def test_opnsense_rejected_payload_reports_validation() -> None:
 
 async def test_opnsense_lists_certificates_for_the_picker() -> None:
     rows = await OPNsenseDriver(FakeOPNsense(), {}).list_device_certs()
-    assert rows == [{"id": "u-1", "name": "Web GUI", "subject": "fw.example.com"}]
+    assert len(rows) == 1
+    assert {k: rows[0][k] for k in ("id", "name", "subject")} == {"id": "u-1", "name": "Web GUI", "subject": "fw.example.com"}
 
 
 # ───────────────────────── Palo Alto（XML API） ─────────────────────────
@@ -294,3 +295,52 @@ async def test_pfsense_reuses_the_cert_when_repushed() -> None:
     steps = Steps()
     await PfSenseDriver(dev, {"bind_webgui": True}).push(b, steps)
     assert len(dev.certs) == n                                         # 同一版不重複建立
+
+
+async def test_opnsense_picker_shows_status_issuer_and_validity() -> None:
+    """下拉清單要看得出狀態與有效日（使用者 10-23）：使用中、使用者憑證、簽發者、有效期間；使用中的排前面。
+    valid_to 可能是 epoch 秒數或日期字串（OPNsense 版本不同），一律轉成 ISO 日期。"""
+    class Dev:
+        async def __call__(self, method, path, **kw):
+            assert path == "/api/trust/cert/search"
+            return Resp(200, {"rows": [
+                {"uuid": "u-old", "descr": "Old GUI", "commonname": "fw.example.com", "in_use": "0", "is_user": "0",
+                 "caref": "Internal CA", "valid_from": "1704067200", "valid_to": "1735689600"},
+                {"uuid": "u-gui", "descr": "Web GUI", "commonname": "fw.example.com", "in_use": "1", "is_user": "0",
+                 "caref": "", "valid_from": "2026-01-01 00:00:00", "valid_to": "2027-01-31 12:00:00"},
+                {"uuid": "u-vpn", "descr": "alice", "commonname": "alice", "in_use": "1", "is_user": "1",
+                 "caref": "OpenVPN_CA", "valid_to": ""},
+            ]})
+    rows = await OPNsenseDriver(Dev(), {}).list_device_certs()
+    assert [r["id"] for r in rows] == ["u-gui", "u-vpn", "u-old"], "使用中的排前面"
+    gui = rows[0]
+    assert gui["in_use"] is True
+    assert gui["is_user"] is False
+    assert gui["valid_to"].startswith("2027-01-31")
+    old = rows[2]
+    assert old["in_use"] is False
+    assert old["issuer"] == "Internal CA"
+    assert old["valid_to"].startswith("2025-01-01")
+    assert rows[1]["is_user"] is True
+    assert rows[1]["valid_to"] is None
+
+
+async def test_pfsense_lists_device_certs_with_webgui_use_and_validity() -> None:
+    """pfSense 也要看得到設備上的憑證（使用者 10-23「pfsense 也看看」）：哪張是網頁管理介面正在用的、
+    CN、簽發者、有效期間。pfSense 的 API 不給有效日，從憑證本體解析；crt 可能是 PEM 或 base64 包的 PEM。"""
+    import base64
+    b1, b2 = _bundle(cn="gui.example.com"), _bundle(cn="old.example.com")
+    dev = FakePfSense()
+    dev.certs = [{"id": 0, "refid": "r-old", "descr": "old one", "crt": base64.b64encode(b2.cert_pem.encode()).decode()},
+                 {"id": 1, "refid": "r-gui", "descr": "jtipam-gui", "crt": b1.cert_pem},
+                 {"id": 2, "refid": "r-bad", "descr": "broken", "crt": "garbage"}]
+    dev.webgui["sslcertref"] = "r-gui"
+    rows = await PfSenseDriver(dev, {}).list_device_certs()
+    assert [r["id"] for r in rows] == ["r-gui", "r-old", "r-bad"], "使用中的排前面"
+    gui = rows[0]
+    assert gui["in_use"] is True
+    assert gui["subject"] == "gui.example.com"
+    assert gui["valid_to"]
+    assert rows[1]["subject"] == "old.example.com"
+    assert rows[1]["in_use"] is False
+    assert rows[2]["valid_to"] is None                     # 解析不了就不顯示日期，不猜

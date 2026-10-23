@@ -138,6 +138,30 @@ test("戰情室設定：顯示範圍三個選單、按鍵表、顯示權杖沒�
   await expect(page.getByTestId("wrs-display-saved")).toBeVisible();
 });
 
+test("戰情室設定：可選可用性主題的時間範圍，存檔會送出（10-23）", async ({ page }) => {
+  let sent: Record<string, unknown> | null = null;
+  // 不真的改伺服器設定（別的測試同時在讀）：攔下 PUT，回原本的設定加上送出的值
+  let cur: Record<string, unknown> = {};
+  await page.route(/\/api\/v1\/system\/warroom$/, async (route) => {
+    if (route.request().method() === "GET") {
+      cur = await (await route.fetch()).json();
+      return route.fulfill({ json: cur });
+    }
+    if (route.request().method() !== "PUT") return route.fallback();
+    sent = route.request().postDataJSON();
+    await route.fulfill({ json: { ...cur, availability_window: sent?.availability_window } });
+  });
+  await login(page);
+  await page.goto("/warroom-settings");
+  const sel = page.getByTestId("wrs-availability-window");
+  await expect(sel).toContainText("最近 7 天");
+  await sel.click();
+  await page.locator(".n-base-select-option", { hasText: "最近 30 天" }).click();
+  await page.getByRole("button", { name: /儲存/ }).last().click();
+  await expect.poll(() => sent?.availability_window).toBe("30d");
+  await expect(sel).toContainText("最近 30 天");
+});
+
 /** 正式站台的數量級（10-22 使用者截圖：資產頁「47 / 72」被裁掉、異常頁三位數旁的標籤一字一行）。
  *  本機資料太少看不出來，這裡把 API 回應換成正式站台的量。 */
 test("正式站台的數量級：資產、異常不溢出，觀測開始前就有的不算新出現", async ({ page }) => {
@@ -270,9 +294,11 @@ test("播放清單可以拖拉排序；電視的編號與數字鍵照播放順�
   await page.goto("/warroom-settings");
   const items = page.getByTestId("wrs-page");
   await expect(items.first()).toBeVisible();
-  const n = await items.count();
-  const lastLabel = (await items.nth(n - 1).locator(".rank-label").innerText()).trim();
-  await items.nth(n - 1).dragTo(items.first());
+  // 拖最後一個「有在播」的主題（08 之後的新主題預設不加入播放清單，編號是「–」）
+  const nums = (await items.locator(".rank-num").allInnerTexts()).map((x) => x.trim());
+  const last = nums.findLastIndex((x) => x !== "–");
+  const lastLabel = (await items.nth(last).locator(".rank-label").innerText()).trim();
+  await items.nth(last).dragTo(items.first());
   await expect(items.first().locator(".rank-label")).toHaveText(lastLabel);
   await expect(items.first().locator(".rank-num")).toHaveText("01");
   // 關掉一個：它變成「–」，後面的編號往前補
@@ -343,6 +369,10 @@ test("滿版資料不截斷：三個地點、DNS 來源滿格、判斷線索逐�
   const evBox = await page.getByTestId("wr-an-evidence").boundingBox();
   const foot = await page.locator(".wr-foot").boundingBox();
   expect(evBox!.y + evBox!.height).toBeLessThanOrEqual(foot!.y + 1);
+  // 右側每張待處理異常卡片的內容都在卡片內，最後一張也在頁尾之上（10-23「超出格子」）
+  expect(await clipped(page, ".an-item")).toEqual([]);
+  const lastCard = await page.getByTestId("wr-an-item").last().boundingBox();
+  expect(lastCard!.y + lastCard!.height).toBeLessThanOrEqual(foot!.y + 1);
 
   await page.keyboard.press("1");
   await expect(page.getByTestId("wr-group")).toHaveCount(3);
@@ -399,3 +429,51 @@ test("偵測到新版：網站準備好後自動重新載入，接著播原本�
   await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".wr-nav__i.on")).toContainText("04");  // 重新載入後接著播 04
 });
+
+test("播放清單排滿 11 個主題：頁尾放不下就只留編號、正在播的寫名稱，不蓋到按鍵提示（10-23）", async ({ page }) => {
+  const ALL = [...TOPICS, "stats", "relations", "availability", "ai_audit"];
+  let language = "en-US";
+  await page.route(/\/api\/v1\/warroom\/config$/, async (route) => {
+    const cfg = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...cfg, pages: ALL, language, reduce_motion: true } });
+  });
+  await login(page);
+  for (language of ["en-US", "zh-TW", "ja-JP"]) {
+    await page.goto("/warroom");
+    const nav = page.getByTestId("wr-nav");
+    await expect(nav.locator(".wr-nav__i")).toHaveCount(11);
+    await expect(nav.locator(".wr-nav__i.on")).toContainText(/\S{2,}/);
+    // 換到有分頁的主題：右邊多出「子網路 01–04 / 8」這類文字，主題列可用寬度變小後要重新判斷（中文曾被切成「11 AI 巡」）
+    await page.keyboard.press("8");
+    await expect(nav.locator(".wr-nav__i.on")).toContainText("08");
+    await page.waitForTimeout(600);
+    const box = await page.evaluate(() => {
+      const n = document.querySelector("[data-testid=wr-nav]") as HTMLElement;
+      const s = document.querySelector(".wr-sub") as HTMLElement;
+      return { navRight: n.getBoundingClientRect().right, subLeft: s.getBoundingClientRect().left,
+        scroll: n.scrollWidth, client: n.clientWidth };
+    });
+    expect(box.scroll, language).toBeLessThanOrEqual(box.client + 1);
+    expect(box.navRight, language).toBeLessThanOrEqual(box.subLeft + 1);
+    // 名稱沒顯示的那幾個，title 仍有名稱
+    await expect(nav.locator(".wr-nav__i").nth(10)).toHaveAttribute("title", /\S/);
+    // 中文、日文先縮間距與字級就放得下：切到有頁碼的主題後每個主題仍寫名稱（10-23「切換後就變只有數字」）
+    if (language !== "en-US") {
+      await expect(nav).not.toHaveClass(/compact/);
+      await expect(nav.locator(".wr-nav__i").nth(1)).toContainText(/\D{2,}/);
+      await expect(nav.locator(".wr-nav__i").nth(10)).toContainText(/AI/);
+    }
+  }
+  // 只放四個主題時每個都寫名稱
+  await page.unroute(/\/api\/v1\/warroom\/config$/);
+  await pinConfigPages(page, TOPICS.slice(0, 4));
+  await page.goto("/warroom");
+  for (let i = 0; i < 4; i++) await expect(page.getByTestId("wr-nav").locator(".wr-nav__i").nth(i)).toContainText(/\D{2,}/);
+});
+
+async function pinConfigPages(page: Page, pages: string[]) {
+  await page.route(/\/api\/v1\/warroom\/config$/, async (route) => {
+    const cfg = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...cfg, pages, language: "en-US", reduce_motion: true } });
+  });
+}

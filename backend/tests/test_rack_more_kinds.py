@@ -25,8 +25,10 @@ PX_PER_MM_H = 250.0 / 482.6     # 水平：19 吋面板 482.6mm＝250px
 #: - 2026-09-25 層架改成寬高同一個比例（拿掉每層 160px 的上限，使用者同意；見 rack.v_px_per_mm）：
 #:   層高、板厚、離地、IVAR 調整孔都改用 250px／482.6mm。對正式機舊版逐張比對過：數字遮掉後
 #:   結構完全相同、文字標籤相同，只有尺寸與座標變了。
-SVG_BASELINE = {"shelf": "f44f952018f8", "wire_shelf": "0676aa93769b",
-                "wood_shelf": "0f01c0475163"}
+#: - 2026-10-23 伺服器改成鋼藍（客戶：伺服器跟「其他」都是灰色分不出來）。測試用的裝置是 server：
+#:   把新顏色換回舊的灰色後，三張圖的雜湊與舊基準完全相同，只有這個顏色變了。
+SVG_BASELINE = {"shelf": "c5839e9c574b", "wire_shelf": "01bdcab6dc52",
+                "wood_shelf": "671c758dcc96"}
 
 
 def test_new_kinds_are_registered_with_the_right_unit() -> None:

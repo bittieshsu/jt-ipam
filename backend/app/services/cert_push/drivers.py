@@ -116,19 +116,75 @@ class FortiGateDriver:
         return rollback if done else None
 
 
+def _parse_cert(raw: Any) -> dict[str, str | None]:
+    """憑證本體 → CN、簽發者 CN、有效期間（ISO）。PEM 或 base64 包著的 PEM；失敗回空。"""
+    import base64
+    import binascii
+
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    t = str(raw or "").strip()
+    if not t:
+        return {}
+    if "BEGIN CERTIFICATE" not in t:
+        try:
+            t = base64.b64decode(t, validate=True).decode("utf-8", "replace")
+        except (binascii.Error, ValueError):
+            return {}
+    try:
+        c = x509.load_pem_x509_certificate(t.encode())
+    except ValueError:
+        return {}
+
+    def cn(name: Any) -> str | None:
+        v = name.get_attributes_for_oid(NameOID.COMMON_NAME)
+        return str(v[0].value) if v else None
+    return {"subject": cn(c.subject), "issuer": cn(c.issuer),
+            "valid_from": c.not_valid_before_utc.isoformat(), "valid_to": c.not_valid_after_utc.isoformat()}
+
+
+def _truthy(v: Any) -> bool:
+    return str(v).strip().lower() in ("1", "true", "yes")
+
+
+def _when(v: Any) -> str | None:
+    """OPNsense 的有效日期：版本不同可能是 epoch 秒數或「YYYY-MM-DD hh:mm:ss」，一律轉 ISO（UTC）。"""
+    from datetime import UTC, datetime
+    t = str(v or "").strip()
+    if not t:
+        return None
+    if t.isdigit():
+        return datetime.fromtimestamp(int(t), UTC).isoformat()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(t, fmt).replace(tzinfo=UTC).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
 class OPNsenseDriver:
     kind = "opnsense"
 
     def __init__(self, http: Http, options: dict[str, Any]) -> None:
         self.http, self.opt = http, options or {}
 
-    async def list_device_certs(self) -> list[dict[str, str]]:
-        """給畫面選「要替換哪一張」。"""
+    async def list_device_certs(self) -> list[dict[str, Any]]:
+        """給畫面選「要替換哪一張」：連同使用中、使用者憑證、簽發者、有效期間（使用者 10-23），使用中的排前面。"""
         resp = await self.http("GET", "/api/trust/cert/search")
         if resp.status_code >= 400:
             raise PushError("list", "certpush_device_error", resp.text)
-        return [{"id": str(r.get("uuid")), "name": str(r.get("descr") or ""), "subject": str(r.get("commonname") or "")}
-                for r in (_body(resp).get("rows") or []) if r.get("uuid")]
+        rows = []
+        for r in _body(resp).get("rows") or []:
+            if not r.get("uuid"):
+                continue
+            rows.append({"id": str(r.get("uuid")), "name": str(r.get("descr") or ""),
+                         "subject": str(r.get("commonname") or ""),
+                         "in_use": _truthy(r.get("in_use")), "is_user": _truthy(r.get("is_user")),
+                         "issuer": str(r.get("caref") or "") or None,
+                         "valid_from": _when(r.get("valid_from")), "valid_to": _when(r.get("valid_to"))})
+        rows.sort(key=lambda x: not x["in_use"])          # 穩定排序：使用中在前，其餘照設備的順序
+        return rows
 
     async def _set(self, uuid: str, descr: str, crt: str, prv: str, step: str) -> None:
         resp = await self.http("POST", f"/api/trust/cert/set/{uuid}", json={"cert": {
@@ -277,6 +333,23 @@ class PfSenseDriver:
         if resp.status_code >= 400 or (body.get("status") not in (None, "ok")):
             raise PushError(step, "certpush_device_error", str(body.get("message") or resp.text))
         return body
+
+    async def list_device_certs(self) -> list[dict[str, Any]]:
+        """設備上的憑證（唯讀）：哪張是網頁管理介面正在用的、CN、簽發者、有效期間（使用者 10-23）。
+        pfSense 的 API 不給有效日，從 crt 解析（PEM，或 base64 包著的 PEM）；解析不了就不顯示日期。"""
+        rows = self._ok("list", await self.http("GET", "/api/v2/system/certificates")).get("data") or []
+        cur = self._ok("list", await self.http("GET", "/api/v2/system/webgui/settings")).get("data") or {}
+        used = str(cur.get("sslcertref") or "")
+        out = []
+        for r in rows:
+            if not isinstance(r, dict) or not r.get("refid"):
+                continue
+            info = _parse_cert(r.get("crt"))
+            out.append({"id": str(r["refid"]), "name": str(r.get("descr") or ""), "subject": info.get("subject") or "",
+                        "in_use": str(r["refid"]) == used, "is_user": str(r.get("type") or "") == "user",
+                        "issuer": info.get("issuer"), "valid_from": info.get("valid_from"), "valid_to": info.get("valid_to")})
+        out.sort(key=lambda x: not x["in_use"])
+        return out
 
     async def push(self, bundle: Bundle, steps: Steps) -> Rollback | None:
         name = bundle.device_name(40)

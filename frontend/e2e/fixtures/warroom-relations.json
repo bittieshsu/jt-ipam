@@ -1,0 +1,1226 @@
+{
+ "pages": [
+  {
+   "key": "relations",
+   "data_at": "2026-10-23T10:30:14.933581+00:00",
+   "per_page": 1,
+   "metrics": {
+    "ips": 5,
+    "devices": 6,
+    "virt": 3
+   },
+   "metrics_state": {
+    "virt": "ok"
+   },
+   "counts": {
+    "state": "ok",
+    "locations": 2,
+    "racks": 2,
+    "subnets": 2,
+    "sections": 2
+   },
+   "pending": {
+    "state": "ok",
+    "ip_unlinked": 1,
+    "vm_ip_unmapped": 0,
+    "vm_no_report": 1,
+    "device_no_place": 2,
+    "conflicts": 2,
+    "vm_state": "ok"
+   },
+   "page": 1,
+   "pages": 4,
+   "total": 4,
+   "focus": {
+    "state": "ok",
+    "ip": {
+     "key": "ip:503db80c-f2a8-4141-9b17-03b24107922e",
+     "id": "503db80c-f2a8-4141-9b17-03b24107922e",
+     "ip": "198.51.100.50",
+     "hostname": "erp-db-01",
+     "mac": "00:11:22:33:44:55",
+     "state": "active",
+     "status": null,
+     "subnet": "198.51.100.0/24"
+    },
+    "rows": [
+     {
+      "kind": "physical",
+      "state": "ok",
+      "more": 0
+     },
+     {
+      "kind": "virtual",
+      "state": "ok",
+      "more": 0
+     },
+     {
+      "kind": "address",
+      "state": "ok",
+      "more": 0
+     }
+    ],
+    "nodes": [
+     {
+      "key": "ip:503db80c-f2a8-4141-9b17-03b24107922e",
+      "type": "ip",
+      "id": "503db80c-f2a8-4141-9b17-03b24107922e",
+      "label": "198.51.100.50",
+      "sub": "erp-db-01",
+      "mac": "00:11:22:33:44:55",
+      "row": null,
+      "col": 3,
+      "slot": 0
+     },
+     {
+      "key": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "type": "subnet",
+      "id": "d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "label": "198.51.100.0/24",
+      "sub": "內部伺服器區",
+      "row": "address",
+      "col": 2,
+      "slot": 0
+     },
+     {
+      "key": "section:d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+      "type": "section",
+      "id": "d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+      "label": "內部網路",
+      "sub": null,
+      "row": "address",
+      "col": 1,
+      "slot": 0
+     },
+     {
+      "key": "device:87f42690-5ab6-4c8b-8134-62438ed3d81b",
+      "type": "device",
+      "id": "87f42690-5ab6-4c8b-8134-62438ed3d81b",
+      "label": "erp-db-01",
+      "sub": "server",
+      "dtype": "server",
+      "row": "physical",
+      "col": 2,
+      "slot": 0
+     },
+     {
+      "key": "rack:f8a79205-86e1-41cd-9978-f9ecfc84c9c7",
+      "type": "rack",
+      "id": "f8a79205-86e1-41cd-9978-f9ecfc84c9c7",
+      "label": "R3-11 Core",
+      "sub": null,
+      "row": "physical",
+      "col": 1,
+      "slot": 0
+     },
+     {
+      "key": "location:95f7f67a-85dc-4263-9a11-f32b835fd786",
+      "type": "location",
+      "id": "95f7f67a-85dc-4263-9a11-f32b835fd786",
+      "label": "台北總部 內湖科技園區 3F 機房",
+      "sub": null,
+      "row": "physical",
+      "col": 0,
+      "slot": 0
+     },
+     {
+      "key": "location:db7377c5-0311-4715-b409-3a30e7153fd6",
+      "type": "location",
+      "id": "db7377c5-0311-4715-b409-3a30e7153fd6",
+      "label": "高雄分部",
+      "sub": null,
+      "row": "physical",
+      "col": 0,
+      "slot": 1
+     },
+     {
+      "key": "device:b3bc70f1-842c-4a0e-b318-19fcd18f7ced",
+      "type": "device",
+      "id": "b3bc70f1-842c-4a0e-b318-19fcd18f7ced",
+      "label": "erp-db-01-old",
+      "sub": "server",
+      "dtype": "server",
+      "row": "physical",
+      "col": 2,
+      "slot": 1
+     },
+     {
+      "key": "vm:a02ae4d9-82a1-4de5-9f5a-99ffe1435610",
+      "type": "vm",
+      "id": "a02ae4d9-82a1-4de5-9f5a-99ffe1435610",
+      "label": "erp-db-vm",
+      "sub": "ct",
+      "platform": "proxmox",
+      "row": "virtual",
+      "col": 1,
+      "slot": 0
+     },
+     {
+      "key": "nic:944bdb0f-4925-4eda-937a-a1cb6232f49e",
+      "type": "nic",
+      "id": "944bdb0f-4925-4eda-937a-a1cb6232f49e",
+      "label": "eth0",
+      "sub": "bc:24:11:aa:bb:cc",
+      "row": "virtual",
+      "col": 2,
+      "slot": 0
+     },
+     {
+      "key": "host:3fc61ff5-da73-45c2-9ace-80ca89ceacbb:pve-node-02",
+      "type": "host",
+      "id": null,
+      "label": "pve-node-02",
+      "sub": "pve-cluster-taipei",
+      "platform": "proxmox",
+      "row": "virtual",
+      "col": 0,
+      "slot": 0
+     }
+    ],
+    "edges": [
+     {
+      "from": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "to": "ip:503db80c-f2a8-4141-9b17-03b24107922e",
+      "kind": "subnet_ip",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "section:d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+      "to": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "kind": "section_subnet",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "rack:f8a79205-86e1-41cd-9978-f9ecfc84c9c7",
+      "to": "device:87f42690-5ab6-4c8b-8134-62438ed3d81b",
+      "kind": "rack_device",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "location:95f7f67a-85dc-4263-9a11-f32b835fd786",
+      "to": "rack:f8a79205-86e1-41cd-9978-f9ecfc84c9c7",
+      "kind": "location_rack",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "location:db7377c5-0311-4715-b409-3a30e7153fd6",
+      "to": "device:87f42690-5ab6-4c8b-8134-62438ed3d81b",
+      "kind": "location_device",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "dashed",
+      "state": "pending",
+      "reason": "location_mismatch"
+     },
+     {
+      "from": "device:87f42690-5ab6-4c8b-8134-62438ed3d81b",
+      "to": "ip:503db80c-f2a8-4141-9b17-03b24107922e",
+      "kind": "device_ip",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "dashed",
+      "state": "pending",
+      "reason": "multiple_devices"
+     },
+     {
+      "from": "device:b3bc70f1-842c-4a0e-b318-19fcd18f7ced",
+      "to": "ip:503db80c-f2a8-4141-9b17-03b24107922e",
+      "kind": "device_primary_ip",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "dashed",
+      "state": "pending",
+      "reason": "multiple_devices"
+     },
+     {
+      "from": "vm:a02ae4d9-82a1-4de5-9f5a-99ffe1435610",
+      "to": "nic:944bdb0f-4925-4eda-937a-a1cb6232f49e",
+      "kind": "vm_nic",
+      "source": "proxmox",
+      "at": "2026-10-23T10:26:10.887537+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "nic:944bdb0f-4925-4eda-937a-a1cb6232f49e",
+      "to": "ip:503db80c-f2a8-4141-9b17-03b24107922e",
+      "kind": "nic_ip",
+      "source": "proxmox",
+      "at": "2026-10-23T10:26:10.887537+00:00",
+      "line": "dashed",
+      "state": "pending",
+      "reason": "mac_mismatch"
+     },
+     {
+      "from": "host:3fc61ff5-da73-45c2-9ace-80ca89ceacbb:pve-node-02",
+      "to": "vm:a02ae4d9-82a1-4de5-9f5a-99ffe1435610",
+      "kind": "host_vm",
+      "source": "proxmox",
+      "at": "2026-10-23T10:26:10.887537+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     }
+    ],
+    "conflicts": [
+     "multiple_devices",
+     "location_mismatch",
+     "mac_mismatch"
+    ],
+    "registered": {
+     "source": "librenms",
+     "at": "2026-09-13T10:30:10.887537+00:00"
+    },
+    "sources": [
+     {
+      "source": "proxmox",
+      "at": "2026-10-23T10:26:10.887537+00:00"
+     },
+     {
+      "source": "librenms",
+      "at": "2026-10-23T10:18:10.887537+00:00"
+     }
+    ],
+    "last_confirmed": "2026-10-23T10:18:10.887537+00:00"
+   }
+  },
+  {
+   "key": "relations",
+   "data_at": "2026-10-23T10:30:15.260464+00:00",
+   "per_page": 1,
+   "metrics": {
+    "ips": 5,
+    "devices": 6,
+    "virt": 3
+   },
+   "metrics_state": {
+    "virt": "ok"
+   },
+   "counts": {
+    "state": "ok",
+    "locations": 2,
+    "racks": 2,
+    "subnets": 2,
+    "sections": 2
+   },
+   "pending": {
+    "state": "ok",
+    "ip_unlinked": 1,
+    "vm_ip_unmapped": 0,
+    "vm_no_report": 1,
+    "device_no_place": 2,
+    "conflicts": 2,
+    "vm_state": "ok"
+   },
+   "page": 2,
+   "pages": 4,
+   "total": 4,
+   "focus": {
+    "state": "ok",
+    "ip": {
+     "key": "ip:4231fcc5-64a1-46d8-bc7a-994623f2a6e7",
+     "id": "4231fcc5-64a1-46d8-bc7a-994623f2a6e7",
+     "ip": "198.51.100.120",
+     "hostname": "mail1.taipei.example.com",
+     "mac": "52:54:00:12:34:56",
+     "state": "active",
+     "status": null,
+     "subnet": "198.51.100.0/24"
+    },
+    "rows": [
+     {
+      "kind": "physical",
+      "state": "ok",
+      "more": 0
+     },
+     {
+      "kind": "virtual",
+      "state": "ok",
+      "more": 0
+     },
+     {
+      "kind": "address",
+      "state": "ok",
+      "more": 0
+     }
+    ],
+    "nodes": [
+     {
+      "key": "ip:4231fcc5-64a1-46d8-bc7a-994623f2a6e7",
+      "type": "ip",
+      "id": "4231fcc5-64a1-46d8-bc7a-994623f2a6e7",
+      "label": "198.51.100.120",
+      "sub": "mail1.taipei.example.com",
+      "mac": "52:54:00:12:34:56",
+      "row": null,
+      "col": 3,
+      "slot": 0
+     },
+     {
+      "key": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "type": "subnet",
+      "id": "d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "label": "198.51.100.0/24",
+      "sub": "內部伺服器區",
+      "row": "address",
+      "col": 2,
+      "slot": 0
+     },
+     {
+      "key": "section:d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+      "type": "section",
+      "id": "d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+      "label": "內部網路",
+      "sub": null,
+      "row": "address",
+      "col": 1,
+      "slot": 0
+     },
+     {
+      "key": "device:30722bc4-bbe6-45eb-bd90-8684441255b9",
+      "type": "device",
+      "id": "30722bc4-bbe6-45eb-bd90-8684441255b9",
+      "label": "pve-node-01.taipei.example.com",
+      "sub": "server",
+      "dtype": "server",
+      "row": "physical",
+      "col": 2,
+      "slot": 0
+     },
+     {
+      "key": "rack:736c4a20-e277-494f-9519-f898dbcae773",
+      "type": "rack",
+      "id": "736c4a20-e277-494f-9519-f898dbcae773",
+      "label": "R1-02",
+      "sub": null,
+      "row": "physical",
+      "col": 1,
+      "slot": 0
+     },
+     {
+      "key": "location:95f7f67a-85dc-4263-9a11-f32b835fd786",
+      "type": "location",
+      "id": "95f7f67a-85dc-4263-9a11-f32b835fd786",
+      "label": "台北總部 內湖科技園區 3F 機房",
+      "sub": null,
+      "row": "physical",
+      "col": 0,
+      "slot": 0
+     },
+     {
+      "key": "vm:ae32e2e2-d3d3-4ca9-94a8-cb4160813bc7",
+      "type": "vm",
+      "id": "ae32e2e2-d3d3-4ca9-94a8-cb4160813bc7",
+      "label": "mail-relay-production-2004",
+      "sub": "vm",
+      "platform": "proxmox",
+      "row": "virtual",
+      "col": 1,
+      "slot": 0
+     },
+     {
+      "key": "nic:3a798c30-8435-43c2-b97d-7b93bb3a4870",
+      "type": "nic",
+      "id": "3a798c30-8435-43c2-b97d-7b93bb3a4870",
+      "label": "net0",
+      "sub": "52:54:00:12:34:56",
+      "row": "virtual",
+      "col": 2,
+      "slot": 0
+     }
+    ],
+    "edges": [
+     {
+      "from": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "to": "ip:4231fcc5-64a1-46d8-bc7a-994623f2a6e7",
+      "kind": "subnet_ip",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "section:d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+      "to": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "kind": "section_subnet",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "rack:736c4a20-e277-494f-9519-f898dbcae773",
+      "to": "device:30722bc4-bbe6-45eb-bd90-8684441255b9",
+      "kind": "rack_device",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "location:95f7f67a-85dc-4263-9a11-f32b835fd786",
+      "to": "rack:736c4a20-e277-494f-9519-f898dbcae773",
+      "kind": "location_rack",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "vm:ae32e2e2-d3d3-4ca9-94a8-cb4160813bc7",
+      "to": "nic:3a798c30-8435-43c2-b97d-7b93bb3a4870",
+      "kind": "vm_nic",
+      "source": "proxmox",
+      "at": "2026-10-23T10:26:10.887537+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "nic:3a798c30-8435-43c2-b97d-7b93bb3a4870",
+      "to": "ip:4231fcc5-64a1-46d8-bc7a-994623f2a6e7",
+      "kind": "nic_ip",
+      "source": "proxmox",
+      "at": "2026-10-23T10:26:10.887537+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "device:30722bc4-bbe6-45eb-bd90-8684441255b9",
+      "to": "vm:ae32e2e2-d3d3-4ca9-94a8-cb4160813bc7",
+      "kind": "host_vm",
+      "source": "proxmox",
+      "at": "2026-10-23T10:26:10.887537+00:00",
+      "line": "dashed",
+      "state": "ok",
+      "reason": null
+     }
+    ],
+    "conflicts": [],
+    "registered": {
+     "source": "manual",
+     "at": "2026-09-13T10:30:10.887537+00:00"
+    },
+    "sources": [
+     {
+      "source": "arp",
+      "at": "2026-10-23T10:28:10.887537+00:00"
+     },
+     {
+      "source": "proxmox",
+      "at": "2026-10-23T10:26:10.887537+00:00"
+     },
+     {
+      "source": "scanner",
+      "at": "2026-10-23T10:24:10.887537+00:00"
+     },
+     {
+      "source": "wazuh",
+      "at": "2026-10-23T07:30:10.887537+00:00"
+     }
+    ],
+    "last_confirmed": "2026-10-23T10:28:10.887537+00:00"
+   }
+  },
+  {
+   "key": "relations",
+   "data_at": "2026-10-23T10:30:15.859195+00:00",
+   "per_page": 1,
+   "metrics": {
+    "ips": 5,
+    "devices": 6,
+    "virt": 3
+   },
+   "metrics_state": {
+    "virt": "ok"
+   },
+   "counts": {
+    "state": "ok",
+    "locations": 2,
+    "racks": 2,
+    "subnets": 2,
+    "sections": 2
+   },
+   "pending": {
+    "state": "ok",
+    "ip_unlinked": 1,
+    "vm_ip_unmapped": 0,
+    "vm_no_report": 1,
+    "device_no_place": 2,
+    "conflicts": 2,
+    "vm_state": "ok"
+   },
+   "page": 3,
+   "pages": 4,
+   "total": 4,
+   "focus": {
+    "state": "ok",
+    "ip": {
+     "key": "ip:7d4e4645-f44f-4dd2-87e5-1338e770768d",
+     "id": "7d4e4645-f44f-4dd2-87e5-1338e770768d",
+     "ip": "2001:db8:abcd:12::1a2b",
+     "hostname": "taipei-nangang-core-switch-primary.mgmt.example.com",
+     "mac": null,
+     "state": "active",
+     "status": null,
+     "subnet": "2001:db8:abcd:12::/64"
+    },
+    "rows": [
+     {
+      "kind": "physical",
+      "state": "ok",
+      "more": 0
+     },
+     {
+      "kind": "virtual",
+      "state": "none",
+      "more": 0
+     },
+     {
+      "kind": "address",
+      "state": "ok",
+      "more": 0
+     }
+    ],
+    "nodes": [
+     {
+      "key": "ip:7d4e4645-f44f-4dd2-87e5-1338e770768d",
+      "type": "ip",
+      "id": "7d4e4645-f44f-4dd2-87e5-1338e770768d",
+      "label": "2001:db8:abcd:12::1a2b",
+      "sub": "taipei-nangang-core-switch-primary.mgmt.example.com",
+      "mac": null,
+      "row": null,
+      "col": 3,
+      "slot": 0
+     },
+     {
+      "key": "subnet:80f4e1e2-f1c2-40c7-8441-5bcf18b702fd",
+      "type": "subnet",
+      "id": "80f4e1e2-f1c2-40c7-8441-5bcf18b702fd",
+      "label": "2001:db8:abcd:12::/64",
+      "sub": "核心交換與儲存網段",
+      "row": "address",
+      "col": 2,
+      "slot": 0
+     },
+     {
+      "key": "section:079317b5-a259-43f3-b436-69d4c68ca578",
+      "type": "section",
+      "id": "079317b5-a259-43f3-b436-69d4c68ca578",
+      "label": "資料中心 IPv6",
+      "sub": null,
+      "row": "address",
+      "col": 1,
+      "slot": 0
+     },
+     {
+      "key": "device:701116b0-4a6c-4c2f-bffd-33bb2786ef78",
+      "type": "device",
+      "id": "701116b0-4a6c-4c2f-bffd-33bb2786ef78",
+      "label": "taipei-nangang-core-switch-primary",
+      "sub": "switch",
+      "dtype": "switch",
+      "row": "physical",
+      "col": 2,
+      "slot": 0
+     },
+     {
+      "key": "rack:f8a79205-86e1-41cd-9978-f9ecfc84c9c7",
+      "type": "rack",
+      "id": "f8a79205-86e1-41cd-9978-f9ecfc84c9c7",
+      "label": "R3-11 Core",
+      "sub": null,
+      "row": "physical",
+      "col": 1,
+      "slot": 0
+     },
+     {
+      "key": "location:95f7f67a-85dc-4263-9a11-f32b835fd786",
+      "type": "location",
+      "id": "95f7f67a-85dc-4263-9a11-f32b835fd786",
+      "label": "台北總部 內湖科技園區 3F 機房",
+      "sub": null,
+      "row": "physical",
+      "col": 0,
+      "slot": 0
+     }
+    ],
+    "edges": [
+     {
+      "from": "subnet:80f4e1e2-f1c2-40c7-8441-5bcf18b702fd",
+      "to": "ip:7d4e4645-f44f-4dd2-87e5-1338e770768d",
+      "kind": "subnet_ip",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "section:079317b5-a259-43f3-b436-69d4c68ca578",
+      "to": "subnet:80f4e1e2-f1c2-40c7-8441-5bcf18b702fd",
+      "kind": "section_subnet",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "rack:f8a79205-86e1-41cd-9978-f9ecfc84c9c7",
+      "to": "device:701116b0-4a6c-4c2f-bffd-33bb2786ef78",
+      "kind": "rack_device",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "location:95f7f67a-85dc-4263-9a11-f32b835fd786",
+      "to": "rack:f8a79205-86e1-41cd-9978-f9ecfc84c9c7",
+      "kind": "location_rack",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "device:701116b0-4a6c-4c2f-bffd-33bb2786ef78",
+      "to": "ip:7d4e4645-f44f-4dd2-87e5-1338e770768d",
+      "kind": "device_ip",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     }
+    ],
+    "conflicts": [],
+    "registered": {
+     "source": "manual",
+     "at": "2026-09-13T10:30:10.887537+00:00"
+    },
+    "sources": [
+     {
+      "source": "librenms",
+      "at": "2026-10-23T10:00:10.887537+00:00"
+     }
+    ],
+    "last_confirmed": "2026-10-23T10:00:10.887537+00:00"
+   }
+  },
+  {
+   "key": "relations",
+   "data_at": "2026-10-23T10:30:16.083015+00:00",
+   "per_page": 1,
+   "metrics": {
+    "ips": 5,
+    "devices": 6,
+    "virt": 3
+   },
+   "metrics_state": {
+    "virt": "ok"
+   },
+   "counts": {
+    "state": "ok",
+    "locations": 2,
+    "racks": 2,
+    "subnets": 2,
+    "sections": 2
+   },
+   "pending": {
+    "state": "ok",
+    "ip_unlinked": 1,
+    "vm_ip_unmapped": 0,
+    "vm_no_report": 1,
+    "device_no_place": 2,
+    "conflicts": 2,
+    "vm_state": "ok"
+   },
+   "page": 4,
+   "pages": 4,
+   "total": 4,
+   "focus": {
+    "state": "ok",
+    "ip": {
+     "key": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "id": "e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "ip": "198.51.100.207",
+     "hostname": "acct-pc-07",
+     "mac": null,
+     "state": "active",
+     "status": null,
+     "subnet": "198.51.100.0/24"
+    },
+    "rows": [
+     {
+      "kind": "physical",
+      "state": "ok",
+      "more": 0
+     },
+     {
+      "kind": "virtual",
+      "state": "none",
+      "more": 0
+     },
+     {
+      "kind": "address",
+      "state": "ok",
+      "more": 0
+     }
+    ],
+    "nodes": [
+     {
+      "key": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+      "type": "ip",
+      "id": "e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+      "label": "198.51.100.207",
+      "sub": "acct-pc-07",
+      "mac": null,
+      "row": null,
+      "col": 3,
+      "slot": 0
+     },
+     {
+      "key": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "type": "subnet",
+      "id": "d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "label": "198.51.100.0/24",
+      "sub": "內部伺服器區",
+      "row": "address",
+      "col": 2,
+      "slot": 0
+     },
+     {
+      "key": "section:d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+      "type": "section",
+      "id": "d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+      "label": "內部網路",
+      "sub": null,
+      "row": "address",
+      "col": 1,
+      "slot": 0
+     },
+     {
+      "key": "device:8936ac51-2a6b-4de5-8e3d-1ec17578015e",
+      "type": "device",
+      "id": "8936ac51-2a6b-4de5-8e3d-1ec17578015e",
+      "label": "acct-pc-07",
+      "sub": "workstation",
+      "dtype": "workstation",
+      "row": "physical",
+      "col": 2,
+      "slot": 0
+     }
+    ],
+    "edges": [
+     {
+      "from": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "to": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+      "kind": "subnet_ip",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "section:d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+      "to": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+      "kind": "section_subnet",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     },
+     {
+      "from": "device:8936ac51-2a6b-4de5-8e3d-1ec17578015e",
+      "to": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+      "kind": "device_ip",
+      "source": "ipam",
+      "at": "2026-10-23T10:30:10.879722+00:00",
+      "line": "solid",
+      "state": "ok",
+      "reason": null
+     }
+    ],
+    "conflicts": [],
+    "registered": {
+     "source": "scanner",
+     "at": "2026-09-13T10:30:10.887537+00:00"
+    },
+    "sources": [
+     {
+      "source": "scanner",
+      "at": "2026-10-21T10:30:10.887537+00:00"
+     }
+    ],
+    "last_confirmed": "2026-10-21T10:30:10.887537+00:00"
+   }
+  }
+ ],
+ "viewer": {
+  "key": "relations",
+  "data_at": "2026-10-23T10:30:16.728902+00:00",
+  "per_page": 1,
+  "metrics": {
+   "ips": 4,
+   "devices": 1,
+   "virt": null
+  },
+  "metrics_state": {
+   "virt": "forbidden"
+  },
+  "counts": {
+   "state": "ok",
+   "locations": 0,
+   "racks": 0,
+   "subnets": 1,
+   "sections": 1
+  },
+  "pending": {
+   "state": "ok",
+   "ip_unlinked": 1,
+   "vm_ip_unmapped": null,
+   "vm_no_report": null,
+   "device_no_place": 0,
+   "conflicts": 0,
+   "vm_state": "forbidden"
+  },
+  "page": 1,
+  "pages": 1,
+  "total": 1,
+  "focus": {
+   "state": "ok",
+   "ip": {
+    "key": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+    "id": "e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+    "ip": "198.51.100.207",
+    "hostname": "acct-pc-07",
+    "mac": null,
+    "state": "active",
+    "status": null,
+    "subnet": "198.51.100.0/24"
+   },
+   "rows": [
+    {
+     "kind": "physical",
+     "state": "ok",
+     "more": 0
+    },
+    {
+     "kind": "virtual",
+     "state": "forbidden",
+     "more": 0
+    },
+    {
+     "kind": "address",
+     "state": "ok",
+     "more": 0
+    }
+   ],
+   "nodes": [
+    {
+     "key": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "type": "ip",
+     "id": "e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "label": "198.51.100.207",
+     "sub": "acct-pc-07",
+     "mac": null,
+     "row": null,
+     "col": 3,
+     "slot": 0
+    },
+    {
+     "key": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+     "type": "subnet",
+     "id": "d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+     "label": "198.51.100.0/24",
+     "sub": "內部伺服器區",
+     "row": "address",
+     "col": 2,
+     "slot": 0
+    },
+    {
+     "key": "device:8936ac51-2a6b-4de5-8e3d-1ec17578015e",
+     "type": "device",
+     "id": "8936ac51-2a6b-4de5-8e3d-1ec17578015e",
+     "label": "acct-pc-07",
+     "sub": "workstation",
+     "dtype": "workstation",
+     "row": "physical",
+     "col": 2,
+     "slot": 0
+    }
+   ],
+   "edges": [
+    {
+     "from": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+     "to": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "kind": "subnet_ip",
+     "source": "ipam",
+     "at": "2026-10-23T10:30:10.879722+00:00",
+     "line": "solid",
+     "state": "ok",
+     "reason": null
+    },
+    {
+     "from": "device:8936ac51-2a6b-4de5-8e3d-1ec17578015e",
+     "to": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "kind": "device_ip",
+     "source": "ipam",
+     "at": "2026-10-23T10:30:10.879722+00:00",
+     "line": "solid",
+     "state": "ok",
+     "reason": null
+    }
+   ],
+   "conflicts": [],
+   "registered": {
+    "source": "scanner",
+    "at": "2026-09-13T10:30:10.887537+00:00"
+   },
+   "sources": [
+    {
+     "source": "scanner",
+     "at": "2026-10-21T10:30:10.887537+00:00"
+    }
+   ],
+   "last_confirmed": "2026-10-21T10:30:10.887537+00:00"
+  }
+ },
+ "forbidden": {
+  "key": "relations",
+  "data_at": "2026-10-23T10:30:17.719475+00:00",
+  "per_page": 1,
+  "page": 1,
+  "pages": 1,
+  "total": 0,
+  "metrics": {
+   "ips": null,
+   "devices": null,
+   "virt": null
+  },
+  "counts": {
+   "state": "forbidden"
+  },
+  "pending": {
+   "state": "forbidden"
+  },
+  "focus": {
+   "state": "forbidden"
+  }
+ },
+ "not_configured": {
+  "key": "relations",
+  "data_at": "2026-10-23T10:30:16.083015+00:00",
+  "per_page": 1,
+  "metrics": {
+   "ips": 5,
+   "devices": 6,
+   "virt": null
+  },
+  "metrics_state": {
+   "virt": "not_configured"
+  },
+  "counts": {
+   "state": "ok",
+   "locations": 2,
+   "racks": 2,
+   "subnets": 2,
+   "sections": 2
+  },
+  "pending": {
+   "state": "ok",
+   "ip_unlinked": 1,
+   "vm_ip_unmapped": null,
+   "vm_no_report": null,
+   "device_no_place": 2,
+   "conflicts": 2,
+   "vm_state": "not_configured"
+  },
+  "page": 1,
+  "pages": 1,
+  "total": 1,
+  "focus": {
+   "state": "ok",
+   "ip": {
+    "key": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+    "id": "e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+    "ip": "198.51.100.207",
+    "hostname": "acct-pc-07",
+    "mac": null,
+    "state": "active",
+    "status": null,
+    "subnet": "198.51.100.0/24"
+   },
+   "rows": [
+    {
+     "kind": "physical",
+     "state": "ok",
+     "more": 0
+    },
+    {
+     "kind": "virtual",
+     "state": "not_configured",
+     "more": 0
+    },
+    {
+     "kind": "address",
+     "state": "ok",
+     "more": 0
+    }
+   ],
+   "nodes": [
+    {
+     "key": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "type": "ip",
+     "id": "e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "label": "198.51.100.207",
+     "sub": "acct-pc-07",
+     "mac": null,
+     "row": null,
+     "col": 3,
+     "slot": 0
+    },
+    {
+     "key": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+     "type": "subnet",
+     "id": "d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+     "label": "198.51.100.0/24",
+     "sub": "內部伺服器區",
+     "row": "address",
+     "col": 2,
+     "slot": 0
+    },
+    {
+     "key": "section:d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+     "type": "section",
+     "id": "d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+     "label": "內部網路",
+     "sub": null,
+     "row": "address",
+     "col": 1,
+     "slot": 0
+    },
+    {
+     "key": "device:8936ac51-2a6b-4de5-8e3d-1ec17578015e",
+     "type": "device",
+     "id": "8936ac51-2a6b-4de5-8e3d-1ec17578015e",
+     "label": "acct-pc-07",
+     "sub": "workstation",
+     "dtype": "workstation",
+     "row": "physical",
+     "col": 2,
+     "slot": 0
+    }
+   ],
+   "edges": [
+    {
+     "from": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+     "to": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "kind": "subnet_ip",
+     "source": "ipam",
+     "at": "2026-10-23T10:30:10.879722+00:00",
+     "line": "solid",
+     "state": "ok",
+     "reason": null
+    },
+    {
+     "from": "section:d9f8d775-28e1-4796-ac1e-fe728f81ee3e",
+     "to": "subnet:d6fa8be4-23fc-4f7c-a0aa-be9a495e7e56",
+     "kind": "section_subnet",
+     "source": "ipam",
+     "at": "2026-10-23T10:30:10.879722+00:00",
+     "line": "solid",
+     "state": "ok",
+     "reason": null
+    },
+    {
+     "from": "device:8936ac51-2a6b-4de5-8e3d-1ec17578015e",
+     "to": "ip:e41ac6d5-a6c5-42f2-9828-0f203ae842a3",
+     "kind": "device_ip",
+     "source": "ipam",
+     "at": "2026-10-23T10:30:10.879722+00:00",
+     "line": "solid",
+     "state": "ok",
+     "reason": null
+    }
+   ],
+   "conflicts": [],
+   "registered": {
+    "source": "scanner",
+    "at": "2026-09-13T10:30:10.887537+00:00"
+   },
+   "sources": [
+    {
+     "source": "scanner",
+     "at": "2026-10-21T10:30:10.887537+00:00"
+    }
+   ],
+   "last_confirmed": "2026-10-21T10:30:10.887537+00:00"
+  }
+ },
+ "empty": {
+  "key": "relations",
+  "data_at": "2026-10-23T10:30:14.933581+00:00",
+  "per_page": 1,
+  "metrics": {
+   "ips": 5,
+   "devices": 6,
+   "virt": 3
+  },
+  "metrics_state": {
+   "virt": "ok"
+  },
+  "counts": {
+   "state": "ok",
+   "locations": 2,
+   "racks": 2,
+   "subnets": 2,
+   "sections": 2
+  },
+  "pending": {
+   "state": "ok",
+   "ip_unlinked": 1,
+   "vm_ip_unmapped": 0,
+   "vm_no_report": 1,
+   "device_no_place": 2,
+   "conflicts": 2,
+   "vm_state": "ok"
+  },
+  "page": 1,
+  "pages": 1,
+  "total": 0,
+  "focus": {
+   "state": "empty",
+   "ips": 5
+  }
+ }
+}

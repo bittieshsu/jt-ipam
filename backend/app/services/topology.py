@@ -33,7 +33,7 @@ from app.models.advanced import WirelessLink
 from app.models.device import Device
 from app.models.librenms import ARPEntry, FDBEntry, LibreNMSDevice
 from app.models.location import Location, Rack
-from app.models.physical import Cable, CableTermination, VPNTunnel
+from app.models.physical import Cable, CableTermination, DevicePort, VPNTunnel
 from app.models.subnet import Subnet
 
 #: 一個埠上出現幾個 MAC 就視為上行／trunk（而不是「這些機器都插在這個埠」）。
@@ -618,22 +618,6 @@ async def build_topology(
         )).all()]
 
         if fdb_rows:
-            # MAC → 裝置。對到多台就標成不明確（重疊網段下同一個 MAC 會有多筆 IP 記錄）。
-            mac_to_dev: dict[str, str | None] = {}
-            for dev_id, mac in (await session.execute(
-                select(IPAddress.device_id, IPAddress.mac).where(
-                    IPAddress.device_id.is_not(None), IPAddress.mac.is_not(None)
-                )
-            )).all():
-                key = normalize_mac(mac)
-                if not key:
-                    continue
-                d_str = str(dev_id)
-                if key in mac_to_dev and mac_to_dev[key] != d_str:
-                    mac_to_dev[key] = None       # 不明確 → 之後一律跳過
-                else:
-                    mac_to_dev.setdefault(key, d_str)
-
             # (交換器, 埠) → MAC 集合
             by_port: dict[tuple[str, str], set[str]] = {}
             vlan_of: dict[tuple[str, str, str], int | None] = {}
@@ -646,6 +630,40 @@ async def build_topology(
                 vlan_of.setdefault((*pk, key), vlan_num)
 
             switch_ids = {sw for sw, _ in by_port}
+
+            # MAC → 裝置。對到多台就標成不明確（重疊網段下同一個 MAC 會有多筆 IP 記錄）。
+            mac_to_dev: dict[str, str | None] = {}
+            # 網卡名稱（裝置埠匯入的 MAC 才有；給前端說「哪張卡接在哪」）
+            mac_nic: dict[str, str] = {}
+
+            def _claim(dev_id: Any, mac: str | None) -> str | None:
+                key = normalize_mac(mac) if mac else None
+                if not key:
+                    return None
+                d_str = str(dev_id)
+                if key in mac_to_dev and mac_to_dev[key] != d_str:
+                    mac_to_dev[key] = None       # 不明確 → 之後一律跳過
+                else:
+                    mac_to_dev.setdefault(key, d_str)
+                return key
+
+            for dev_id, mac in (await session.execute(
+                select(IPAddress.device_id, IPAddress.mac).where(
+                    IPAddress.device_id.is_not(None), IPAddress.mac.is_not(None)
+                )
+            )).all():
+                _claim(dev_id, mac)
+            # 沒有 IP 記錄的網卡（例如虛擬化主機的儲存網路卡）也算這台裝置的（10-23 雙接主機）。
+            # 交換器自己的埠 MAC 不加：骨幹推導看的「交換器自己的 MAC」維持只用管理位址那顆
+            for dev_id, name, mac in (await session.execute(
+                select(DevicePort.device_id, DevicePort.name, DevicePort.mac_address).where(
+                    DevicePort.mac_address.is_not(None), DevicePort.type == "network")
+            )).all():
+                if str(dev_id) in switch_ids:
+                    continue
+                key = _claim(dev_id, mac)
+                if key and mac_to_dev.get(key) == str(dev_id):
+                    mac_nic.setdefault(key, name)
             # 每台交換器自己的 MAC（用來認出「對面那台就是它」）
             own_macs: dict[str, set[str]] = {}
             for mac, dev in mac_to_dev.items():
@@ -679,6 +697,11 @@ async def build_topology(
                 for mac in macs:
                     sightings.setdefault(mac, []).append((sw_id, port))
 
+            # 看得到別台交換器自己 MAC 的埠＝朝那台的上聯（一次算好；大型站台一個埠上千個 MAC）
+            switch_mac_of = {m: sw for sw in switch_ids for m in own_macs.get(sw, ())}
+            uplink_ports = {pk for pk, macs in by_port.items()
+                            if any(switch_mac_of.get(m) not in (None, pk[0]) for m in macs)}
+
             for mac in sorted(sightings):
                 peer = mac_to_dev.get(mac)
                 if peer is None or peer not in visible_device_ids:
@@ -686,11 +709,20 @@ async def build_topology(
                 spots = [(sw, pt) for sw, pt in sightings[mac] if sw != peer]
                 if not spots:
                     continue                                   # 只看到自己身上
+                # 上聯埠（看得到別台交換器自己 MAC 的埠）不是端點：這張網卡是從那條上聯被對面學到的。
+                # 拿掉之後只剩一個埠，就是它插的地方，即使那個埠上有好幾個 MAC（主機上的 VM）——
+                # 兩張表各自老化，包含關係常常判不出內外（10-23 實機：雙接的虛擬化主機一半的線畫不出來）
+                facing = [x for x in spots if x in uplink_ports]
+                ruled_out_uplink = bool(facing) and len(facing) < len(spots)
+                if ruled_out_uplink:
+                    spots = [x for x in spots if x not in facing]
                 small = [(sw, pt) for sw, pt in spots
                          if len(by_port[(sw, pt)]) <= UPLINK_MAC_THRESHOLD]
                 if small:
                     # 有「乾淨」的埠就用它（同時看到多個時取 MAC 最少的那個）
                     sw_id, port = min(small, key=lambda x: (len(by_port[x]), x[1]))
+                elif len(spots) == 1 and ruled_out_uplink:
+                    sw_id, port = spots[0]
                 elif len(spots) < 2:
                     # 只在一個熱鬧的埠上看到，沒有內外可比 —— 它可能在那個上行埠後面的
                     # 任何地方。（注意：對空集合做 all() 是恆真的，少了這個判斷就會
@@ -720,6 +752,9 @@ async def build_topology(
                     "port": port, "direct": direct,
                     "port_mac_count": len(macs_here),
                     "vlan": vlan_of.get((sw_id, port, mac)),
+                    # 哪張網卡：前端用來分辨「兩張卡各接一台」（雙接）
+                    "mac": ":".join(mac[i:i + 2] for i in range(0, len(mac), 2)) if len(mac) == 12 else mac,
+                    "nic": mac_nic.get(mac),
                 }})
 
             # ② 骨幹：兩台交換器直連的判準（Breitbart 等人的 FDB 拓樸推導條件）

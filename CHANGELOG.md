@@ -4,12 +4,35 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
-## [Unreleased]
+## [1.0.15] - 2026-10-24
+
+### Added
+- New docs page "Integrations guide" (`docs/integrations.html`, in the nav of every docs page): one section per integration (44 in total), each saying what it reads, the management benefit, what to prepare, limits and the exact menu path, in three languages. Every item on the homepage integration map links to its section.
+- War room: four new topics, not added to existing playlists automatically (Admin > War room settings to switch them on):
+  - **08 IP statistics**: registered IPs split into online, offline and unknown (always adding up to the total, "online (arp)" counted as online like the dashboard, with a separate ARP-only count), one shared cells-per-box scale, IPv4 and IPv6 counted separately, subnets ranked by their own records, and audit events of the last 24 hours (admins and war room viewers only; others see "No access", never 0).
+  - **09 IP relationships**: one IP per data page with its chain (device, rack, location, VM, VM host), picked by how many relations it has; the right column counts missing links (IP not linked to the device that claims it, VM addresses without an IP record, running VMs not reporting addresses, rack-mounted kinds without a location, conflicting sources). Without a virtualization integration the VM counts read "Not configured".
+  - **10 IP availability**: the viewer's tracked IPs (the dashboard availability list) over 24 hours, 7, 30 or 90 days, rebuilt from IP change history and daily liveness; days without observations are unknown, offline counts only while a scan agent or LibreNMS still watches the subnet, mixed cells show both states, flapping is 4 or more confirmed changes in 24 hours. The range is chosen in war room settings ("Availability topic time range") and falls back to the longest range the history covers.
+  - **11 AI audit results**: the latest AI audit run (completed, partial, failed or running) with its findings rotating every 10 seconds. Each run's outcome, a coarse error code (never the model's text), batch counts and sampled objects are now recorded. Accounts without full access only see findings whose evidence they can see entirely; withheld findings are reported without a count.
+- War room footer: when the playlist does not fit it first tightens the spacing, then uses a slightly smaller font, and only if it still does not fit (for example 11 topics in English) keeps the name for the current topic alone with numbers for the others (the name is in the tooltip); it never runs under the key hint. Chinese and Japanese keep all 11 names, also on topics with a page label on the right.
 
 ### Changed
+- Dashboard "IP usage": instead of one ring for all subnets combined (a single /8 kept it near 0%, useless on a site with many subnets) the card shows up to 4 subnets, each with its own ring, description, CIDR and used / total, coloured like the subnet list (orange from 75%, red from 90%; IPv6 shows the used count without a ratio). "Choose subnets" in the card picks them, searching on the server (CIDR, address or description), and the choice is kept per account. With nothing chosen the card says it is automatic and shows the 4 visible subnets with the highest usage. Only subnets you can see can be chosen or shown: others are dropped when saving and again when reading (`GET /api/v1/dashboard/subnet-usage`, `pinned.usage_subnets` in `PATCH /api/v1/me/preferences`). `GET /api/v1/subnets` accepts `q` (CIDR or description substring, or an address to find the subnets containing it).
 - guacd build 4 is published (release `guacd-1.6.1-pre.d9ec474-4`) and `scripts/guacd/SHA256SUMS` now lists it: **Ubuntu 26.10 can be installed**; on other OSes an upgrade moves guacd from build 3 to build 4.
 - The war room reloads itself when a new version is deployed: it checks every 3 minutes and reloads only once the new page and the backend answer (an upgrade in progress never leaves it on an error page), then resumes the same topic, page and paused state. It never checked before, and ordinary pages only show a "click to refresh" prompt nobody clicks on a TV.
 - The TV display token is kept in localStorage: TVs are switched off nightly and the browser restores the address without the token; it used to live in sessionStorage, which the browser clears on close, so the TV fell back to the login page. The token still never stays in the address bar; a token saved by the previous version is moved over. War room settings explain this.
+- Device relation chain: without a primary IP, the chain used whichever linked IP came back first, often the BMC (a Dell R750 showed its iDRAC 198.51.100.113 instead of the OS address 198.51.100.13). Addresses whose host name looks like a BMC (iDRAC, iLO, IPMI, XCC…) now come last, and the IP box shows "+N more IPs".
+- Rack diagram on the device page: other devices keep their normal colours and the current device gets a thick amber frame. It used to wash every other device with a white layer, leaving several greys with unreadable white text; in the dark theme the colours were also lighter than on the Racks page because the diagram outside a card was underlaid with white.
+- War room AI audit: the evidence column on the right is wider and its sections are spaced apart; the focus shows the first subject on one line with "+N more" instead of stacking two IPs, which used to push the evidence table up against the title; a long host name is shortened with an ellipsis (the IP is never cut), and the time column fits a date when the record is from another day.
+- Rack diagrams in English: the card title is singular ("Rack: TYO-R01", it read "Racks:"), and the shelf "Top" label no longer wraps to "To / p".
+- Rack diagrams: servers are steel blue instead of grey, and "Other" (and unclassified devices) is grey with diagonal stripes, so servers and accessories such as KVM drawers, shelves and small boxes no longer turn a whole rack the same grey, especially in the dark theme. The same colours apply to the legend, the SVG export and the embedded rack SVG; "Other" is now in the legend.
+- IP topology, switch-centred view: hosts whose separate NICs go to different switches (for example a virtualization host's LAN card on one switch and its storage card on another) get a "switch-A + switch-B dual-homed group" placed between the two switches, with a line from each; the node card shows "Dual-homed" and each switch port with its NIC name. The same NIC learned on two switches still belongs to one switch (the other link stays "to be confirmed").
+- Topology from switch MAC tables: a MAC also learned on an inter-switch uplink (a port that sees another switch's own MAC) is placed on the remaining port even when that port carries several MACs (VMs on the host); NIC MACs imported as device ports count as the device's own, so a NIC without an IP record is placed too. On a production-sized site this placed 12 more hosts and VMs that used to show no switch.
+- IP topology: subnet boxes size to their label (a CIDR like 203.0.113.0/24 used to touch the border), and the buttons in the node detail card are spaced apart and have icons.
+- Background tasks: the detail popover ("Failed, click for details" and result tags) has a Copy button that copies the whole message (and the raw data when present).
+- Certificate push: the "Which certificate on the device to replace" list for OPNsense shows each certificate's status (in use, user certificate, unused), issuer and expiry date (expiring within 30 days in orange, expired in red); the selected value stays a single line. A pfSense target can now read the certificates on the device too, marking the one the web GUI uses (pfSense always adds a new certificate, so it is a read-only list). The load button is the same height as the list next to it.
+- War room anomalies: IP names are one line and cards share the column height, so the last card no longer runs past the panel.
+- Project site home page: the single dashboard screenshot is now a three-slide carousel (dashboard, war room, rack elevation) with captions in all three languages. It rotates every 6 seconds, pauses on hover, keyboard focus, a hidden tab or the pause button, does not rotate when the system asks for reduced motion, and has arrows, dots, arrow keys and touch swipe; each slide follows the language switch and opens full size on click. The screenshots are new, taken on v1.0.14 against a fictional mid-size site.
+- `scripts/demo_dataset.py --busy` (with `--db-url`) grows the demo data into a mid-size site for those screenshots: four sites, 41 subnets including 10.x private ranges, about 1,900 IPs with an online/offline/unknown mix, scan agents (one overdue), 117 devices across fuller racks, 84 VMs in two clusters, 90 days of per-day liveness, two weeks of IP changes and a few open anomalies. All names are generic and all MACs locally administered; without `--busy` the data set is unchanged. `scripts/docs-shots.mjs` reads the access token from sessionStorage (it had been sending none since tokens moved there) and gains the `warroom` and `hero-rack` shots.
 
 ### Security
 - The CubeCOS simulator (test tool) strips line breaks from response headers (CodeQL #58).
@@ -3436,7 +3459,7 @@ current one; permission grants and group membership changes are audited; the las
   within it (compensating the outline width, without which everything shifts 2px down). A
   geometric end-to-end test guards it, because this kind of drift is invisible in a screenshot.
 - **AI review prose contained addresses with no source.** One run produced both `192.16CA.1.59`
-  (the model mangling `192.168.1.59`) and `196.168.1.39` (valid but nonexistent). Such errors look
+  (the model mangling `198.51.100.59`) and `196.168.1.39` (valid but nonexistent). Such errors look
   precise and read as confident, and people go and look them up. Addresses in the prose that do not
   match the cited evidence are now removed (CIDRs are kept, since those describe a range): better one
   sentence short than one plausible-looking falsehood.
@@ -7456,7 +7479,7 @@ Found by running the new Windows agent against a real Windows 11 + IIS host, not
   device-name, ARP/MAC, and a new **device model** precedence (manual is highest
   and cannot be disabled in each).
 - Address search gains an **exact-match** toggle (IP / hostname must equal the
-  query, so `192.168.1.1` no longer also matches `192.168.1.1xx`).
+  query, so `198.51.100.1` no longer also matches `198.51.100.1xx`).
 - Subnets may explicitly **allow overlap** (e.g. same CIDR under a different
   tenant / location) via `allow_overlap`.
 - OPNsense alias sync: aliases are pulled into `opnsense_synced_aliases`.

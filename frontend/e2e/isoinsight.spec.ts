@@ -5,7 +5,7 @@
  * - 測試連線：分階段結果、標示「尚未套用」；連不上時講出是哪一個階段、什麼原因
  * - 有 E2E_ISOINSIGHT_URL（一台會回租約 JSON 的測試用 ISOinsight）時，再走完預覽 → 立即同步 → 租約與同步記錄頁籤
  *
- * 只用文件用位址；真機的登入回應、方法與時區仍待驗證（TEST_CHECKLIST 7b5）。
+ * 只用文件用位址（10-15 已在客戶真機驗證登入與讀租約，IPv6 仍待驗證）。
  */
 import { test, expect, type Page } from "@playwright/test";
 
@@ -43,7 +43,7 @@ test("ISOinsight：新增、測試連線、（有測試設備時）預覽與同�
   await login(page);
   await page.goto("/isoinsight");
   await expect(page.getByText("ISOinsight 整合").first()).toBeVisible();
-  await expect(page.getByText("待真機驗證").first()).toBeVisible();
+  await expect(page.getByText("已在客戶的 ISOinsight 實機上驗證").first()).toBeVisible();   // 10-15 客戶真機通過
 
   // ── 新增 ──
   await page.getByTestId("iso-create").click();

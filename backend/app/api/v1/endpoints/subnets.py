@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import ipaddress
 import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, select, text
+from sqlalchemy import String, cast, func, or_, select, text
+from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, require_admin, require_object_perm
@@ -68,12 +70,30 @@ async def overlaps_exist(
     return {"has_overlap": await has_overlapping_subnets(session)}
 
 
+def _search_clause(q: str) -> Any:
+    """CIDR／描述的子字串；q 是一個完整位址時，包含它的子網路也算命中。"""
+    # 跳脫 LIKE 萬用字元：使用者打的 % / _ 是字面上的字
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+    conds = [cast(Subnet.cidr, String).ilike(pattern, escape="\\"),
+             Subnet.description.ilike(pattern, escape="\\")]
+    try:
+        addr = ipaddress.ip_address(q)
+    except ValueError:
+        addr = None
+    if addr is not None:
+        conds.append(Subnet.cidr.op(">>=")(cast(str(addr), INET)))
+    return or_(*conds)
+
+
 @router.get("", response_model=Paginated[SubnetRead])
 async def list_subnets(
     user: CurrentUser,
     session: Annotated[AsyncSession, Depends(get_session)],
     section_id: uuid.UUID | None = Query(None),
     archived: bool = Query(False),  # 預設只列未歸檔；archived=true 看歸檔區
+    q: str | None = Query(None, max_length=128,
+                          description="搜尋：CIDR 或描述的子字串（不分大小寫）；給完整位址時也列出包含它的子網路"),
     page: int = Query(1, ge=1, le=10_000),
     page_size: int = Query(50, ge=1, le=500),
 ) -> Paginated[SubnetRead]:
@@ -82,6 +102,11 @@ async def list_subnets(
     arch_clause = Subnet.archived_at.is_not(None) if archived else Subnet.archived_at.is_(None)
     stmt = stmt.where(arch_clause)
     count_stmt = count_stmt.where(arch_clause)
+    if q and q.strip():
+        # 伺服器端搜尋（2026-10-23 儀表板挑子網路）：子網路多的站台不能整包載入再在瀏覽器裡篩
+        search = _search_clause(q.strip())
+        stmt = stmt.where(search)
+        count_stmt = count_stmt.where(search)
     if section_id is not None:
         stmt = stmt.where(Subnet.section_id == section_id)
         count_stmt = count_stmt.where(Subnet.section_id == section_id)

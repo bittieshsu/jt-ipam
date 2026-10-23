@@ -4,7 +4,7 @@
  *
  * phpIPAM 缺點：dashboard 只是堆數字。
  * jt-ipam：
- *   - 全系統使用率 donut(CSS conic-gradient，無圖表 lib 依賴)
+ *   - IP 使用率：最多 4 個子網路各自的小圓環（自選，或自動挑使用率最高的）
  *   - 上線 / 離線 / 未知 三色指示燈
  *   - Top-N 最滿 subnet(capacity planning)
  *   - section heat：每個 section 的使用熱度條
@@ -15,6 +15,7 @@ import { useI18n } from "vue-i18n";
 import { usesLevels } from "@/utils/rackSlots";
 import { apiClient } from "@/api/client";
 import DashboardUptime from "@/components/DashboardUptime.vue";
+import DashboardSubnetUsage from "@/components/DashboardSubnetUsage.vue";
 import DashboardAIAudit from "@/components/DashboardAIAudit.vue";
 import DashboardRacksCard from "@/components/DashboardRacksCard.vue";
 import DashboardTrendSettings from "@/components/DashboardTrendSettings.vue";
@@ -39,7 +40,7 @@ import { usePinned } from "@/composables/usePinned";
 import CardTitle from "@/components/CardTitle.vue";
 import {
   DashboardIcon, SectionsIcon, SubnetsIcon, AddressesIcon, AuditIcon, LocationsIcon, RacksIcon, DevicesIcon, VirtualizationIcon,
-  TopologyIcon, UsageIcon, CustomersIcon, PinIcon, SettingsIcon,
+  TopologyIcon, CustomersIcon, PinIcon, SettingsIcon,
 } from "@/icons";
 // 即時狀態卡片：用「訊號/天線」語意，與側邊選單的掃描代理同一顆
 import { Antenna as LiveIcon } from "@iconoir/vue";
@@ -74,8 +75,6 @@ const usePctColor = (pct: number): string => {
   if (pct >= 50) return "#eab308";
   return "#22c55e";
 };
-
-const donutColor = computed(() => usePctColor(data.value?.ipv4_used_pct ?? 0));
 
 // 即時狀態來源文字：依實際 enabled 的來源產生（後端回 status_sources）
 const indicatorSourceText = computed(() => {
@@ -322,38 +321,9 @@ onMounted(() => { void load(); void loadPins(); });
       <DashboardUptime />
 
       <div class="row-2col">
-        <!-- Donut 使用率 — SVG stroke-dasharray，currentColor 跟主題色 -->
-        <n-card class="row-card">
-          <template #header>
-            <CardTitle :icon="UsageIcon" :text="t('dashboard.card_ip_usage')" />
-          </template>
-          <n-space vertical align="center" justify="center" style="height: 100%">
-            <svg class="donut-svg" viewBox="0 0 100 100" width="180" height="180">
-              <!-- track -->
-              <circle cx="50" cy="50" r="42" fill="none"
-                      stroke="currentColor" stroke-width="9" stroke-opacity="0.12" />
-              <!-- value -->
-              <circle cx="50" cy="50" r="42" fill="none"
-                      :stroke="donutColor"
-                      stroke-width="9"
-                      pathLength="100"
-                      :stroke-dasharray="`${data.ipv4_used_pct} 100`"
-                      stroke-linecap="round"
-                      transform="rotate(-90 50 50)"
-                      style="transition: stroke-dasharray 0.5s ease, stroke 0.3s ease;" />
-              <text x="50" y="49" text-anchor="middle" dominant-baseline="middle"
-                    font-size="18" font-weight="700" fill="currentColor"
-                    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-                {{ data.ipv4_used_pct }}%
-              </text>
-              <text x="50" y="64" text-anchor="middle" dominant-baseline="middle"
-                    font-size="7" fill="currentColor" opacity="0.6"
-                    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', monospace">
-                {{ data.ipv4_used.toLocaleString() }} / {{ data.ipv4_capacity.toLocaleString() }}
-              </text>
-            </svg>
-          </n-space>
-        </n-card>
+        <!-- IP 使用率：最多 4 個子網路各自的小圓環（使用者自選或自動挑最高的 4 個；客戶 2026-10-23）。
+             以前是全部加總的一個圓環，只要有一個 /8 就永遠接近 0%，網段一多就沒有用途 -->
+        <DashboardSubnetUsage class="row-card" />
 
         <!-- 狀態指示燈 -->
         <n-card class="row-card">
@@ -816,44 +786,17 @@ onMounted(() => { void load(); void loadPins(); });
 }
 .row-2col {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(360px, 2fr);
+  grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr);
   gap: 16px;
   align-items: stretch;
 }
 .row-2col > .row-card {
   height: 100%;
 }
-@media (max-width: 800px) {
+@media (max-width: 960px) {
   .row-2col {
     grid-template-columns: 1fr;
   }
-}
-.donut {
-  width: 200px;
-  height: 200px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.donut-hole {
-  width: 130px;
-  height: 130px;
-  background: var(--n-card-color, white);
-  border-radius: 50%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-.donut-pct {
-  font-size: 28px;
-  font-weight: 700;
-}
-.donut-sub {
-  font-size: 12px;
-  opacity: 0.7;
-  margin-top: 4px;
 }
 .indicator-row {
   display: flex;

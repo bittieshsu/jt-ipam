@@ -16,7 +16,7 @@ import { useRouter } from "vue-router";
 import { NCard, NEmpty, NAlert, NSpace, NTooltip, NButton, NButtonGroup, NIcon, NDropdown, NSlider, NPopover } from "naive-ui";
 import { otherFaceHints, type FaceHint } from "@/utils/rackOtherFace";
 import type { RackDiagram } from "@/api/racks";
-import { rackTypeColor as colorFor, RACK_DEVICE_TYPES } from "@/utils/rackColors";
+import { rackTypeFill as colorFor, RACK_DEVICE_TYPES } from "@/utils/rackColors";
 import { exportRacksDrawio, exportRacksPng, exportRacksSvg,
   type ExportDiagram } from "@/utils/rackGraphicsExport";
 import { exportTable, type ExportColumn } from "@/utils/tableExport";
@@ -94,7 +94,7 @@ function rowsText(n: number, kind?: string | null): string {
 const rowsLabel = computed(() => rowsText(props.diagram?.u_height ?? 0, rackKind.value));
 // 層架不是機櫃 —— 標題寫「機櫃：」會讓人以為型態沒存到。標點交給各語系（中日文全形）。
 const cardTitle = computed(() => t("racks.card_title", {
-  kind: usesLevels(rackKind.value) ? t("racks.card_shelf") : t("nav.racks"),
+  kind: usesLevels(rackKind.value) ? t("racks.card_shelf") : t("racks.card_rack"),   // 單數（英文曾顯示「Racks: TYO-R01」）
   name: props.diagram?.name ?? "", rows: rowsLabel.value,
 }));
 
@@ -725,7 +725,7 @@ function switchToOther(h: FaceHint) {
                 <template #trigger>
                   <div
                     class="u-part u-occupied"
-                    :class="{ 'u-top': p.is_top, 'u-bottom': p.is_bottom, 'u-cont': !p.is_bottom, 'u-hl': hoveredId === p.id || highlightId === p.id || flashIds.has(String(p.id)), 'u-dim': !!highlightId && highlightId !== p.id }"
+                    :class="{ 'u-top': p.is_top, 'u-bottom': p.is_bottom, 'u-cont': !p.is_bottom, 'u-hl': hoveredId === p.id || flashIds.has(String(p.id)), 'u-self': !!highlightId && highlightId === p.id }"
                     :style="{ background: colorFor(p.type), left: pct(p.slot), width: pct(p.span),
                               ...partVStyle(p),
                               justifyContent: p.span >= 12 ? nameJustify : 'center' }"
@@ -871,7 +871,8 @@ function switchToOther(h: FaceHint) {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  width: 26px;
+  min-width: 26px;                 /* 不寫死寬度：英文的「Top」曾被擠成「To / p」 */
+  white-space: nowrap;
   padding-right: 6px;
   font: bold 12px ui-monospace, SFMono-Regular, Menlo, monospace;
   color: rgba(127, 127, 127, 0.75);
@@ -1304,9 +1305,12 @@ function switchToOther(h: FaceHint) {
   content: "";
   position: absolute;
   inset: 0;
-  background: var(--n-card-color, #fff);
+  background: var(--n-card-color, var(--rd-under, #fff));
   z-index: -1;
 }
+/* 不在卡片裡的機櫃圖（裝置詳細頁的小圖）拿不到 --n-card-color，以前一律墊白色：
+   深色主題下半透明的設備色疊在白底上整個變淺、白字看不到（10-23 客戶）。墊跟深色卡片一樣的底 */
+:global(html[data-theme="dark"]) .rack-frame { --rd-under: #0f1825; }
 .u-part.u-occupied { color: #fff; font-size: 12px; }
 .u-part.u-occupied.u-top { border-top: 2px solid rgba(0, 0, 0, 0.32); }
 .u-part.u-occupied.u-bottom { border-bottom: 2px solid rgba(0, 0, 0, 0.32); }
@@ -1374,17 +1378,14 @@ function switchToOther(h: FaceHint) {
 .n-card.rd-bare { background: transparent; box-shadow: none; border: none; }
 .rd-bare :deep(.n-card__content) { padding: 0; }
 .rd-bare :deep(.n-card-header) { display: none; }
-/* 聚焦模式：設了 highlightId 時，其他裝置淡化，只突顯本裝置 */
-/* 同上：`opacity` / `filter` 會建立堆疊環境 → 用疊一層背景色來壓暗 */
-.u-dim { color: rgba(255, 255, 255, 0.55); }
-.u-dim::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: rgba(250, 250, 250, 0.62);
-  pointer-events: none;
-}
-.u-dim .d-name { opacity: 0.75; }
+/* 聚焦模式（裝置詳細頁標示本機）：其他裝置**維持原色**，本機加粗琥珀框。
+   以前是把其他裝置疊一層 62% 白色淡化，結果整櫃變成深淺不一的灰、白字看不到（10-23 客戶）。
+   同上：不用 opacity／filter（會建立堆疊環境、跨 U 的名稱被蓋掉）。 */
+.u-part.u-self { box-shadow: inset 3px 0 0 #f59e0b, inset -3px 0 0 #f59e0b; }
+.u-part.u-self.u-top { box-shadow: inset 3px 0 0 #f59e0b, inset -3px 0 0 #f59e0b, inset 0 3px 0 #f59e0b; }
+.u-part.u-self.u-bottom { box-shadow: inset 3px 0 0 #f59e0b, inset -3px 0 0 #f59e0b, inset 0 -3px 0 #f59e0b; }
+.u-part.u-self.u-top.u-bottom { box-shadow: inset 0 0 0 3px #f59e0b; }
+.u-part.u-self .d-name { font-weight: 800; }
 /* compact：較小列高，給裝置詳細資料側欄用 */
 /* 高度由上面的 rowPx 決定（行內 style），這裡只調字級 —— 兩邊各設一次就會打架 */
 /* 整張是用 transform 等比縮的，字也會跟著縮 —— 先除以縮放倍率，畫出來剛好是想要的字級。
@@ -1392,7 +1393,7 @@ function switchToOther(h: FaceHint) {
 .rd-compact .u-row { font-size: calc(10px / var(--rd-fit, 1)); }
 /* 縮圖整張等比縮小、字級用 --rd-fit 補回來；編號欄的寬度與內距也要一起補，否則兩位數擠不下會折成兩行，
    十位數疊到下一格（42U 縮圖在裝置頁上，客戶 2026-10-12 回報）。 */
-.rd-compact .u-num-out { font-size: calc(9px / var(--rd-fit, 1)); width: calc(22px / var(--rd-fit, 1));
+.rd-compact .u-num-out { font-size: calc(9px / var(--rd-fit, 1)); min-width: calc(22px / var(--rd-fit, 1));
   padding-right: calc(4px / var(--rd-fit, 1)); white-space: nowrap; }
 .rd-compact .d-name { font-size: calc(10px / var(--rd-fit, 1)); max-width: 100%; }
 .rd-compact .d-name-half { font-size: calc(9px / var(--rd-fit, 1)); }

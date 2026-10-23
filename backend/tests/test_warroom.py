@@ -216,6 +216,19 @@ async def test_settings_validation(client, auth_headers) -> None:
     assert got["group_by"] == "location"
 
 
+async def test_availability_window_setting(client, auth_headers) -> None:
+    """可用性主題的時間範圍可以在戰情室設定選（10-23；以前 builder 會讀但設定存不進去，永遠是 7 天）。"""
+    assert (await client.get("/api/v1/system/warroom", headers=auth_headers)).json()["availability_window"] == "7d"
+    r = await client.put("/api/v1/system/warroom", json={"availability_window": "30d"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["availability_window"] == "30d"
+    page = (await client.get("/api/v1/warroom/pages/availability", headers=auth_headers)).json()
+    assert page["window"]["requested"] == "30d"
+    # 不認得的值退回預設（跟 group_by 一樣）
+    r = await client.put("/api/v1/system/warroom", json={"availability_window": "1y"}, headers=auth_headers)
+    assert r.json()["availability_window"] == "7d"
+
+
 async def test_turning_the_war_room_off_blocks_signed_in_users(client, auth_headers) -> None:
     await client.put("/api/v1/system/warroom", json={"enabled": False}, headers=auth_headers)
     r = await client.get("/api/v1/warroom/config", headers=auth_headers)

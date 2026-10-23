@@ -50,3 +50,22 @@ test("作業歷史：搜尋與篩選送到後端；代理回報與資料庫更�
   // 選項顯示名稱，不是內部的 oui.refresh（2026-10-09）
   await expect(page.locator(".n-base-select-option", { hasText: "OUI 廠商資料庫更新" })).toBeVisible();
 });
+
+test("作業細節彈出框可以一鍵複製整段錯誤訊息（10-23）", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const err = 'DNSAdapterError: UCS UDM REST 403: {"error": {"code": 403, "message": "HTTP 403: Forbidden (Not in allowed groups.)"}}';
+  await page.route(/\/api\/v1\/tasks(\?.*)?$/, async (route) => {
+    const res = await (await route.fetch()).json();
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("active_only") === "true") return route.fulfill({ json: res });
+    const row = { ...(res.items?.[0] ?? {}), id: "e2e-copy", kind: "dns.sync", status: "failed", error: err,
+      summary: null, progress: 0, trigger: "scheduled" };
+    await route.fulfill({ json: { ...res, items: [row], total: 1 } });
+  });
+  await login(page);
+  await page.goto("/tasks");
+  await page.locator(".n-tabs-tab", { hasText: "歷史" }).click();
+  await page.locator(".n-tab-pane:visible").getByText("點選看細節").first().click();
+  await page.getByTestId("task-detail-copy").click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(err);
+});

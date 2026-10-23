@@ -20,18 +20,24 @@ KEY = "warroom"
 TOKEN_AAD = b"setting:warroom:display_token"
 
 #: 主題（順序就是預設的播放順序）
-PAGES = ("overview", "capacity", "topology", "services", "anomalies", "assets", "collection")
+PAGES = ("overview", "capacity", "topology", "services", "anomalies", "assets", "collection",
+         "stats", "relations", "availability", "ai_audit")
 READY_PAGES = PAGES
+#: 升級後自動加進播放清單的主題。08–11（統計、物件關係、可用性、AI 巡檢；2026-10-23）不自動加入，
+#: 由管理員在戰情室設定自己勾（規格：不必讓所有主題預設進入每一份播放清單）
+AUTO_JOIN_PAGES = PAGES[:7]
 #: 第一批（M1）完成的主題：這之前存的設定沒有 ready_seen，視為當時只看過這三頁
 M1_READY = ("overview", "capacity", "collection")
 GROUP_BY = ("location", "section", "customer")
 AI_MODES = ("off", "template", "llm")
 LANGS = ("", "zh-TW", "en-US", "ja-JP")
+#: 可用性主題的時間範圍（availability.WINDOWS 的鍵）；歷史不夠長時畫面會自動退到涵蓋得到的最大範圍
+AVAILABILITY_WINDOWS = ("24h", "7d", "30d", "90d")
 MAX_SCOPE = 500                      # 每一種最多選幾個
 
 DEFAULTS: dict[str, Any] = {
     "enabled": True,                 # 登入的帳號都看得到（升級後自動可用）；顯示權杖另外開
-    "pages": list(READY_PAGES),
+    "pages": list(AUTO_JOIN_PAGES),
     "dwell_seconds": 20,
     "max_subpages": 2,               # 每個主題最多輪播幾個資料子頁：大型站台不會長期霸佔輪播
     "group_by": "location",
@@ -39,6 +45,7 @@ DEFAULTS: dict[str, Any] = {
     "capacity_crit": 90,
     "language": "",                  # 空＝跟著瀏覽器
     "reduce_motion": False,
+    "availability_window": "7d",
     "ai_summary": "off",
     "display_enabled": False,
     "principal_user_id": None,
@@ -58,10 +65,10 @@ def _clean(v: dict[str, Any]) -> dict[str, Any]:
     if v.get("pages") is not None:
         # 新主題插在預設順序裡它前一個（已在清單中的）主題後面；清單其餘照管理員排的順序
         # （播放清單可拖拉排序，整個重排回預設順序會蓋掉自訂順序，10-22）
-        for p in [p for p in READY_PAGES if p not in seen and p not in pages]:
+        for p in [p for p in AUTO_JOIN_PAGES if p not in seen and p not in pages]:
             before = [q for q in PAGES[:PAGES.index(p)] if q in pages]
             pages.insert(pages.index(before[-1]) + 1 if before else 0, p)
-    out["pages"] = list(dict.fromkeys(pages)) or list(READY_PAGES)
+    out["pages"] = list(dict.fromkeys(pages)) or list(AUTO_JOIN_PAGES)
     out["ready_seen"] = list(READY_PAGES)
     sc = out.get("scope") if isinstance(out.get("scope"), dict) else {}
     clean_scope: dict[str, list[str]] = {}
@@ -82,6 +89,8 @@ def _clean(v: dict[str, Any]) -> dict[str, Any]:
     out["capacity_warn"], out["capacity_crit"] = (warn, crit) if warn < crit else (80, 90)
     out["language"] = out["language"] if out.get("language") in LANGS else ""
     out["reduce_motion"] = bool(out.get("reduce_motion"))
+    if out.get("availability_window") not in AVAILABILITY_WINDOWS:
+        out["availability_window"] = "7d"
     out["ai_summary"] = out["ai_summary"] if out.get("ai_summary") in AI_MODES else "off"
     out["enabled"] = bool(out.get("enabled"))
     out["display_enabled"] = bool(out.get("display_enabled"))

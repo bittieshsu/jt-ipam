@@ -2,12 +2,14 @@ import { apiClient } from "@/api/client";
 import type { Paginated, ScanScope, Subnet, SubnetUsage } from "@/types";
 
 export async function listSubnets(
-  params: { sectionId?: string; archived?: boolean; page?: number; pageSize?: number } = {},
+  params: { sectionId?: string; archived?: boolean; page?: number; pageSize?: number; q?: string } = {},
 ): Promise<Paginated<Subnet>> {
   const { data } = await apiClient.get<Paginated<Subnet>>("/api/v1/subnets", {
     params: {
       section_id: params.sectionId,
       archived: params.archived ?? false,
+      // 伺服器端搜尋：CIDR／描述的子字串，或包含某個位址的子網路
+      q: params.q || undefined,
       page: params.page ?? 1,
       page_size: params.pageSize ?? 50,
     },

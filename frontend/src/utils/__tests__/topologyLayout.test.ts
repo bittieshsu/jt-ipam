@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignOwners, gridPositions, nodeLabels, packRows, ringPositions, segmentsFor } from "../topologyLayout";
+import { assignOwners, gridPositions, multiHomed, nodeLabels, packRows, ringPositions, segmentsFor } from "../topologyLayout";
 
 describe("主機歸屬哪一台交換器（接入群組）", () => {
   it("直連的埠優先；兩邊都學到的另一條只算待確認，不當成雙接", () => {
@@ -23,6 +23,29 @@ describe("主機歸屬哪一台交換器（接入群組）", () => {
       { id: "b", source: "h", target: "s1", port_mac_count: 3 },
     ], ["s1", "s2"]);
     expect(tie.get("h")?.switch).toBe("s1");
+  });
+});
+
+describe("雙接（不同網卡各接一台交換器）", () => {
+  it("兩條線的網卡 MAC 不同才算雙接，交換器照順序", () => {
+    const m = multiHomed([
+      { id: "a", source: "pve", target: "sw-003", port: "eth1/0/10", mac: "02:00:5e:10:00:01" },
+      { id: "b", source: "pve", target: "sw-006", port: "Eth1/4", mac: "02:00:5e:10:00:02" },
+      { id: "c", source: "nas", target: "sw-006", port: "Eth1/5", mac: "aa:aa:aa:aa:aa:01" },
+    ], ["sw-006", "sw-003"]);
+    expect(m.get("pve")).toEqual({ switches: ["sw-006", "sw-003"], edges: ["b", "a"] });
+    expect(m.has("nas")).toBe(false);
+  });
+
+  it("同一個 MAC 在兩台都學到（上聯造成）或沒有 MAC 的舊資料：不算雙接", () => {
+    expect(multiHomed([
+      { id: "a", source: "h", target: "s1", mac: "AA:AA:AA:AA:AA:01" },
+      { id: "b", source: "h", target: "s2", mac: "aa:aa:aa:aa:aa:01" },
+    ], ["s1", "s2"]).size).toBe(0);
+    expect(multiHomed([
+      { id: "a", source: "h", target: "s1" },
+      { id: "b", source: "h", target: "s2" },
+    ], ["s1", "s2"]).size).toBe(0);
   });
 });
 

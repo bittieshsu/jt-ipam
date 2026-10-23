@@ -24,6 +24,11 @@
 `--consoles`（要搭配 `--db-url`）另外建立瀏覽器連線管理的示範目標（SSH／RDP／VNC／
 PVE／BMC／RustDesk），拍 `ssh-rdp` 那張圖用。它會多出幾筆 IP、讓其他畫面也出現連線按鈕，
 所以預設不做；其他截圖照舊在沒有加這個參數的資料上拍。
+
+`--busy`（要搭配 `--db-url`）把資料放大成一個「中型站台」：二十多個子網路（含 10.x 私有網段）、
+一千多筆 IP、掃描代理、虛擬機、90 天的存活記錄、兩週的 IP 異動、幾筆待處理的異常。
+官網首頁輪播（儀表板、戰情室、機櫃）在這份資料上拍 —— 預設那份太稀疏，儀表板拍起來
+像空系統。其他截圖仍在沒有加這個參數的資料上拍（子網路清單之類的畫面會整個不一樣）。
 """
 from __future__ import annotations
 
@@ -156,6 +161,10 @@ DEVICES = [
     ("core-sw-02",  "switch",   "Generic", "GS-4800-48T", "TYO-R01", 39, 1, "198.51.100.3"),
     ("patch-01",    "patch_panel", "Generic", "PP-24",    "TYO-R01", 38, 1, None),
     ("tor-sw-01",   "switch",   "Generic", "GS-2400-24T", "TYO-R01", 37, 1, "198.51.100.5"),
+    # 「其他」類的配件（理線架、層板）：機櫃圖上是灰底斜紋，跟鋼藍色的伺服器並排才看得出差別。
+    # U 位挑 --busy 也沒用到的空位，兩份資料都拍得到
+    ("cable-mgmt-01", "other",  "Generic", "CM-1U",       "TYO-R01", 36, 1, None),
+    ("shelf-01",    "other",    "Generic", "SH-1U",       "TYO-R03", 29, 1, None),
     ("app-srv-01",  "server",   "Generic", "SR-2U",       "TYO-R01", 34, 2, "198.51.100.11"),
     ("app-srv-02",  "server",   "Generic", "SR-2U",       "TYO-R01", 32, 2, "198.51.100.12"),
     ("app-srv-03",  "server",   "Generic", "SR-2U",       "TYO-R01", 30, 2, "198.51.100.13"),
@@ -286,10 +295,10 @@ class Api:
         self.token = body["access_token"]
 
 
-def _existing(api: Api, path: str, key: str = "name") -> dict[str, str]:
+def _existing(api: Api, path: str, key: str = "name", page_size: int = 500) -> dict[str, str]:
     """回「名稱 → id」；重跑時用來跳過已經存在的東西。"""
     sep = "&" if "?" in path else "?"
-    st, body = api.call("GET", f"{path}{sep}page_size=500")
+    st, body = api.call("GET", f"{path}{sep}page_size={page_size}")
     if st != 200:
         return {}
     items = body.get("items", body) if isinstance(body, dict) else body
@@ -307,7 +316,11 @@ def main() -> int:
     ap.add_argument("--consoles", action="store_true",
                     help="另外建立瀏覽器連線管理的示範目標（SSH/RDP/VNC/PVE/BMC/RustDesk，"
                          "拍 ssh-rdp 那張圖用；需要 --db-url）。會多出幾筆 IP、改變其他畫面，所以預設不做。")
+    ap.add_argument("--busy", action="store_true",
+                    help="放大成中型站台（官網首頁輪播用；需要 --db-url）。會改變幾乎每個畫面，所以預設不做。")
     args = ap.parse_args()
+    if args.busy and not args.db_url:
+        ap.error("--busy 需要 --db-url（存活記錄、異常、虛擬機都沒有 API，要直接寫資料庫）")
 
     api = Api(args.base)
     api.login(args.user, args.password)
@@ -407,7 +420,8 @@ def main() -> int:
         return best
 
     # ── IP ──
-    ip_ids = _existing(api, "/addresses", key="ip")
+    # 一頁看不完（--busy 有一千多筆）：只看第一頁的話重跑會把後面的當成沒建過
+    ip_ids = _all_addresses(api)
     wanted: list[tuple[str, str, str]] = [
         (ip, host, desc) for ip, host, desc in EXTRA_IPS
     ] + [
@@ -570,8 +584,14 @@ def main() -> int:
         else:
             print(f"儀表板釘選 {len(watch)}")
 
+    if args.busy:
+        _busy_api(api, loc_ids, rack_ids, sec_ids, subnet_ids, ip_ids, dev_ids)
+
     if args.db_url:
         _fake_liveness(args.db_url)
+
+    if args.busy:
+        _busy_db(args.db_url)
 
     if args.consoles:
         _console_targets(api, args.db_url, subnet_for, ip_ids, dev_ids)
@@ -814,6 +834,469 @@ UPDATE ip_addresses SET effective_status = 'online',
         print("PVE 主控台／OS／上線狀態 已寫入（示範用）")
     except (OSError, subprocess.CalledProcessError) as exc:
         print(f"  ! 寫入連線示範資料失敗（需要 psql）：{exc}")
+
+
+# ── 中型站台（--busy；官網首頁輪播用）──────────────────────────────────────
+#
+# 首頁那三張圖（儀表板、戰情室、機櫃）是整個專案的門面。預設資料只有 39 筆 IP、一個區段
+# 裡幾個 /24，儀表板拍起來每一塊都空空的，戰情室的站台矩陣只有五個灰格子。
+# 這裡補成一個說得過去的中型站台：四個站台、二十多個子網路、一千多筆 IP，
+# 有掃描代理（其中一台逾時沒回報）、有幾個快滿的網段、有幾筆還沒處理的異常。
+#
+# 位址：文件保留網段之外，加上 10.x 私有網段（RFC 1918，任何組織內部都在用，不指向誰）。
+# MAC：一律是本機管理位址（第一個位元組 02），不會對到任何真實廠牌。
+
+BUSY_SECTIONS = [
+    ("Corporate", "Office, Wi-Fi and voice networks"),
+    ("Infrastructure", "Data center servers, storage and virtualization"),
+]
+
+#: 單位（儀表板「各單位資源占比」）：通用的部門名稱
+BUSY_CUSTOMERS = [
+    ("Sales", "Sales and customer support"),
+    ("Engineering", "Product development and labs"),
+    ("Finance", "Finance and administration"),
+    ("Shared Services", "IT infrastructure shared by all units"),
+]
+
+#: 掃描代理：(名稱, 多久以前回報過（分鐘）)。超過 30 分鐘就是「資料逾時」——
+#: 戰情室要看得到這種格子，所以刻意留一台兩小時沒回報
+BUSY_AGENTS = [
+    ("scan-tyo-01", 2), ("scan-osa-01", 4), ("scan-tpe-01", 1), ("scan-tpe-02", 125), ("scan-sin-01", 6),
+]
+
+#: 既有（預設資料集）的子網路補上站台、單位、掃描代理
+BUSY_CORE_SUBNETS = {
+    "198.51.100.0/24": ("Tokyo DC", "Shared Services", "scan-tyo-01"),
+    "2001:db8:100::/64": ("Tokyo DC", "Shared Services", "scan-tyo-01"),
+    "203.0.113.0/24": ("Osaka Site", "Sales", "scan-osa-01"),
+    "192.0.2.0/25": ("Taipei HQ", "Engineering", "scan-tpe-01"),
+    "192.0.2.128/25": ("Taipei HQ", "Shared Services", "scan-tpe-01"),
+}
+
+#: (區段, CIDR, 說明, 站台, 單位, 掃描代理, 要填幾筆 IP, 主機名稱前綴, IP 說明)
+#: 填的筆數決定配置率：幾個小網段刻意填到 80% 以上（戰情室的「容量警戒」）
+BUSY_SUBNETS = [
+    ("Infrastructure", "10.10.0.0/24", "Servers A", "Tokyo DC", "Shared Services", "scan-tyo-01", 104, "srv-a", "Application server"),
+    ("Infrastructure", "10.10.1.0/24", "Servers B", "Tokyo DC", "Engineering", "scan-tyo-01", 88, "srv-b", "Application server"),
+    ("Infrastructure", "10.10.2.0/25", "Storage", "Tokyo DC", "Shared Services", "scan-tyo-01", 34, "stor", "Storage node"),
+    ("Infrastructure", "10.10.3.0/26", "Backup", "Tokyo DC", "Shared Services", "scan-tyo-01", 19, "bkp", "Backup target"),
+    ("Infrastructure", "10.10.4.0/27", "iSCSI", "Tokyo DC", "Shared Services", "scan-tyo-01", 27, "iscsi", "iSCSI portal"),
+    ("Infrastructure", "10.10.10.0/24", "Virtualization", "Tokyo DC", "Engineering", "scan-tyo-01", 92, "vm", "Virtual machine"),
+    ("Infrastructure", "10.10.11.0/24", "Kubernetes nodes", "Tokyo DC", "Engineering", "scan-tyo-01", 56, "k8s", "Kubernetes node"),
+    ("Infrastructure", "10.10.20.0/24", "Database", "Tokyo DC", "Shared Services", "scan-tyo-01", 36, "db", "Database server"),
+    ("Infrastructure", "10.10.21.0/25", "Cache", "Tokyo DC", "Engineering", "scan-tyo-01", 18, "cache", "Cache node"),
+    ("Infrastructure", "10.10.30.0/24", "Monitoring", "Tokyo DC", "Shared Services", "scan-tyo-01", 22, "mon", "Monitoring"),
+    ("Infrastructure", "10.10.40.0/24", "DMZ apps", "Tokyo DC", "Sales", "scan-tyo-01", 30, "dmz", "Public service"),
+    ("Infrastructure", "10.10.50.0/26", "Load balancers", "Tokyo DC", "Shared Services", "scan-tyo-01", 12, "lb", "Load balancer"),
+    ("Management", "10.10.99.0/26", "Out-of-band", "Tokyo DC", "Shared Services", "scan-tyo-01", 41, "bmc", "BMC"),
+    ("Infrastructure", "10.10.100.0/28", "Transit", "Tokyo DC", "Shared Services", "scan-tyo-01", 13, "tr", "Transit link"),
+    ("Infrastructure", "10.20.0.0/24", "Servers", "Osaka Site", "Sales", "scan-osa-01", 71, "osa-srv", "Application server"),
+    ("Infrastructure", "10.20.1.0/25", "Virtualization", "Osaka Site", "Sales", "scan-osa-01", 49, "osa-vm", "Virtual machine"),
+    ("Corporate", "10.20.10.0/24", "Office", "Osaka Site", "Sales", "scan-osa-01", 78, "osa-pc", "Desktop"),
+    ("Corporate", "10.20.11.0/24", "Wi-Fi", "Osaka Site", "Sales", "scan-osa-01", 168, "osa-wl", "Wireless client"),
+    ("Infrastructure", "10.20.2.0/24", "Database", "Osaka Site", "Sales", "scan-osa-01", 24, "osa-db", "Database server"),
+    ("Corporate", "10.20.12.0/24", "Voice", "Osaka Site", "Sales", "scan-osa-01", 41, "osa-phone", "IP phone"),
+    ("Corporate", "10.20.13.0/26", "Printers", "Osaka Site", "Sales", "scan-osa-01", 9, "osa-prn", "Printer"),
+    ("Corporate", "10.20.20.0/24", "Guest Wi-Fi", "Osaka Site", "Shared Services", None, 0, "osa-guest", "Guest"),
+    ("Management", "10.20.99.0/27", "Management", "Osaka Site", "Shared Services", "scan-osa-01", 17, "osa-mgmt", "Management interface"),
+    ("Corporate", "10.30.0.0/24", "Office 3F", "Taipei HQ", "Finance", "scan-tpe-01", 112, "pc-3f", "Desktop"),
+    ("Corporate", "10.30.1.0/24", "Office 5F", "Taipei HQ", "Engineering", "scan-tpe-01", 96, "pc-5f", "Desktop"),
+    ("Corporate", "10.30.2.0/24", "Wi-Fi", "Taipei HQ", "Shared Services", "scan-tpe-01", 229, "wl", "Wireless client"),
+    ("Corporate", "10.30.3.0/24", "Voice", "Taipei HQ", "Shared Services", "scan-tpe-01", 66, "phone", "IP phone"),
+    ("Corporate", "10.30.4.0/26", "Printers", "Taipei HQ", "Shared Services", "scan-tpe-01", 23, "prn", "Printer"),
+    ("Corporate", "10.30.6.0/24", "Office 6F", "Taipei HQ", "Sales", "scan-tpe-01", 74, "pc-6f", "Desktop"),
+    ("Corporate", "10.30.7.0/24", "Cameras", "Taipei HQ", "Shared Services", "scan-tpe-01", 48, "cam", "IP camera"),
+    ("Corporate", "10.30.8.0/26", "Access control", "Taipei HQ", "Shared Services", "scan-tpe-01", 14, "door", "Door controller"),
+    ("Corporate", "10.30.5.0/24", "Meeting rooms", "Taipei HQ", "Shared Services", "scan-tpe-02", 38, "mtg", "Meeting room display"),
+    ("Infrastructure", "10.30.10.0/24", "Lab", "Taipei HQ", "Engineering", "scan-tpe-02", 62, "lab", "Lab host"),
+    # 沒有掃描代理＝「未掃描」：戰情室上要看得到這種格子
+    ("Corporate", "10.30.20.0/24", "Guest Wi-Fi", "Taipei HQ", "Shared Services", None, 0, "guest", "Guest"),
+    ("Infrastructure", "10.40.0.0/24", "Servers", "Singapore Edge", "Shared Services", "scan-sin-01", 44, "sin-srv", "Application server"),
+    ("Management", "10.40.99.0/27", "Management", "Singapore Edge", "Shared Services", "scan-sin-01", 11, "sin-mgmt", "Management interface"),
+]
+
+#: 多一座網路機櫃（格式同 RACKS）：配線架、交換器、路由器、防火牆，整排機櫃的顏色才有變化
+BUSY_RACKS = [("TYO-R04", "Tokyo DC", 42, 600, 1200, 0.86, 0.30)]
+
+#: 多出來的裝置（格式同 DEVICES）：機櫃要像真的機房，不是每座只放兩三台
+BUSY_DEVICES = [
+    ("app-srv-07",  "server",   "Generic", "SR-2U",       "TYO-R01", 10, 2, "10.10.0.17"),
+    ("app-srv-08",  "server",   "Generic", "SR-2U",       "TYO-R01", 8, 2, "10.10.0.18"),
+    ("ci-runner-01", "server",  "Generic", "SR-1U",       "TYO-R01", 6, 1, "10.10.1.41"),
+    ("ci-runner-02", "server",  "Generic", "SR-1U",       "TYO-R01", 5, 1, "10.10.1.42"),
+    ("vm-host-05",  "server",   "Generic", "SR-2U",       "TYO-R02", 13, 2, "10.10.10.15"),
+    ("vm-host-06",  "server",   "Generic", "SR-2U",       "TYO-R02", 11, 2, "10.10.10.16"),
+    ("san-02",      "storage",  "Generic", "ST-4U",       "TYO-R02", 6, 4, "10.10.2.12"),
+    ("vdi-host-03", "server",   "Generic", "SR-2U",       "TYO-R03", 19, 2, "10.10.10.23"),
+    ("vdi-host-04", "server",   "Generic", "SR-2U",       "TYO-R03", 17, 2, "10.10.10.24"),
+    ("gpu-node-01", "server",   "Generic", "GX-4U",       "TYO-R03", 12, 4, "10.10.1.22"),
+    ("gpu-node-02", "server",   "Generic", "GX-4U",       "TYO-R03", 8, 4, "10.10.1.23"),
+    ("ups-r03",     "ups",      "Generic", "UPS-6K",      "TYO-R03", 1, 3, None),
+    ("patch-04",    "patch_panel", "Generic", "PP-48",    "TYO-R04", 42, 1, None),
+    ("agg-sw-01",   "switch",   "Generic", "GS-4800-48T", "TYO-R04", 41, 1, "10.10.99.4"),
+    ("patch-05",    "patch_panel", "Generic", "PP-48",    "TYO-R04", 40, 1, None),
+    ("agg-sw-02",   "switch",   "Generic", "GS-4800-48T", "TYO-R04", 39, 1, "10.10.99.5"),
+    ("patch-06",    "patch_panel", "Generic", "PP-48",    "TYO-R04", 38, 1, None),
+    ("acc-sw-01",   "switch",   "Generic", "GS-2400-24T", "TYO-R04", 37, 1, "10.10.99.6"),
+    ("acc-sw-02",   "switch",   "Generic", "GS-2400-24T", "TYO-R04", 36, 1, "10.10.99.7"),
+    ("patch-07",    "patch_panel", "Generic", "PP-24",    "TYO-R04", 35, 1, None),
+    ("acc-sw-03",   "switch",   "Generic", "GS-2400-24T", "TYO-R04", 34, 1, "10.10.99.8"),
+    ("acc-sw-04",   "switch",   "Generic", "GS-2400-24T", "TYO-R04", 33, 1, "10.10.99.9"),
+    ("wan-rt-01",   "router",   "Generic", "RT-2200",     "TYO-R04", 30, 2, "10.10.100.2"),
+    ("wan-rt-02",   "router",   "Generic", "RT-2200",     "TYO-R04", 28, 2, "10.10.100.3"),
+    ("int-fw-01",   "firewall", "Generic", "FW-2200",     "TYO-R04", 26, 1, "10.10.100.5"),
+    ("int-fw-02",   "firewall", "Generic", "FW-2200",     "TYO-R04", 25, 1, "10.10.100.6"),
+    ("lb-01",       "other",    "Generic", "LB-1U",       "TYO-R04", 23, 1, "10.10.50.5"),
+    ("lb-02",       "other",    "Generic", "LB-1U",       "TYO-R04", 22, 1, "10.10.50.6"),
+    ("console-01",  "other",    "Generic", "CS-32",       "TYO-R04", 21, 1, "10.10.99.20"),
+    ("spine-sw-01", "switch",   "Generic", "GS-9600-32Q", "TYO-R04", 18, 2, "10.10.99.10"),
+    ("spine-sw-02", "switch",   "Generic", "GS-9600-32Q", "TYO-R04", 16, 2, "10.10.99.11"),
+    ("ups-r04",     "ups",      "Generic", "UPS-3K",      "TYO-R04", 1, 2, None),
+    ("app-srv-04",  "server",   "Generic", "SR-2U",       "TYO-R01", 23, 2, "10.10.0.14"),
+    ("app-srv-05",  "server",   "Generic", "SR-2U",       "TYO-R01", 21, 2, "10.10.0.15"),
+    ("app-srv-06",  "server",   "Generic", "SR-2U",       "TYO-R01", 19, 2, "10.10.0.16"),
+    ("kvm-01",      "other",    "Generic", "KVM-8",       "TYO-R01", 18, 1, None),
+    ("ai-node-01",  "server",   "Generic", "GX-4U",       "TYO-R01", 13, 4, "10.10.1.21"),
+    ("ups-r01",     "ups",      "Generic", "UPS-3K",      "TYO-R01", 1, 2, None),
+    ("tor-sw-02",   "switch",   "Generic", "GS-2400-24T", "TYO-R02", 42, 1, "10.10.99.3"),
+    ("patch-02",    "patch_panel", "Generic", "PP-24",    "TYO-R02", 33, 1, None),
+    ("vm-host-01",  "server",   "Generic", "SR-2U",       "TYO-R02", 29, 2, "10.10.10.11"),
+    ("vm-host-02",  "server",   "Generic", "SR-2U",       "TYO-R02", 27, 2, "10.10.10.12"),
+    ("vm-host-03",  "server",   "Generic", "SR-2U",       "TYO-R02", 25, 2, "10.10.10.13"),
+    ("vm-host-04",  "server",   "Generic", "SR-2U",       "TYO-R02", 23, 2, "10.10.10.14"),
+    ("log-srv-01",  "server",   "Generic", "SR-2U",       "TYO-R02", 21, 2, "10.10.0.31"),
+    ("san-01",      "storage",  "Generic", "ST-4U",       "TYO-R02", 16, 4, "10.10.2.11"),
+    ("ups-r02",     "ups",      "Generic", "UPS-6K",      "TYO-R02", 1, 3, None),
+    ("oob-sw-01",   "switch",   "Generic", "GS-2400-24T", "TYO-R03", 38, 1, "10.10.99.2"),
+    ("patch-03",    "patch_panel", "Generic", "PP-24",    "TYO-R03", 37, 1, None),
+    ("mon-srv-01",  "server",   "Generic", "SR-2U",       "TYO-R03", 35, 2, "10.10.0.41"),
+    ("dns-srv-01",  "server",   "Generic", "SR-1U",       "TYO-R03", 34, 1, "10.10.0.53"),
+    ("dns-srv-02",  "server",   "Generic", "SR-1U",       "TYO-R03", 33, 1, "10.10.0.54"),
+    ("mail-srv-01", "server",   "Generic", "SR-2U",       "TYO-R03", 31, 2, "10.10.0.25"),
+    ("jump-srv-01", "server",   "Generic", "SR-1U",       "TYO-R03", 30, 1, "10.10.0.22"),
+    ("tape-01",     "storage",  "Generic", "TL-3U",       "TYO-R03", 26, 3, None),
+    ("vdi-host-01", "server",   "Generic", "SR-2U",       "TYO-R03", 23, 2, "10.10.10.21"),
+    ("vdi-host-02", "server",   "Generic", "SR-2U",       "TYO-R03", 21, 2, "10.10.10.22"),
+    ("osa-fw-01",   "firewall", "Generic", "FW-1100",     "OSA-R01", 41, 1, "10.20.99.1"),
+    ("osa-srv-03",  "server",   "Generic", "SR-2U",       "OSA-R01", 37, 2, "10.20.0.13"),
+    ("osa-nas-01",  "storage",  "Generic", "ST-4U",       "OSA-R01", 33, 4, "10.20.0.31"),
+]
+
+#: 虛擬化叢集：(名稱, 種類, 站台, 節點, VM 數, VM 位址所在網段, VM 名稱前綴)
+BUSY_CLUSTERS = [
+    ("pve-tyo", "proxmox", "Tokyo DC", ["vm-host-01", "vm-host-02", "vm-host-03", "vm-host-04"], 56,
+     "10.10.10.0/24", "tyo"),
+    ("vsphere-osa", "vmware", "Osaka Site", ["esx-01", "esx-02", "esx-03"], 28, "10.20.1.0/25", "osa"),
+]
+
+#: 還沒處理的異常：(類別, 標籤／IP, 幾分鐘前第一次出現)。高嚴重度（衝突、非法 DHCP、未授權）排在前面
+BUSY_ANOMALIES = [
+    ("ip_conflicts", "10.30.2.57", 38),
+    ("rogue_dhcp", "10.30.5.254", 95),
+    ("unauthorized_ips", "10.30.1.188", 12),
+    ("unauthorized_ips", "10.20.11.203", 140),
+    ("unauthorized_ips", "10.30.2.241", 260),
+    ("mac_drifts", "10.10.0.45", 75),
+    ("ghost_ips", "10.10.1.30", 320),
+    ("dangling_dns", "legacy-crm.example.net", 400),
+]
+
+#: 快到期的憑證（戰情室「優先處理事項」與服務頁會列出來）
+BUSY_CERTS = [("vpn-example-net", "vpn.example.net", ["vpn.example.net"], 9)]
+
+
+def _demo_mac(ip: str) -> str:
+    """位址 → 固定的本機管理 MAC（02:…）。重跑得到同一個值，不會每次都產生「MAC 變更」。"""
+    import hashlib
+    h = hashlib.sha256(ip.encode()).digest()
+    return "02:" + ":".join(f"{b:02x}" for b in h[:5])
+
+
+def _fill_hosts(cidr: str, n: int) -> list[str]:
+    """在網段裡挑 n 個位址。不是從 .1 連續排下去：真實網段有空洞（退役的機器、保留給閘道的前幾個）。
+    用網段字串當亂數種子，重跑挑到同一批。"""
+    import ipaddress
+    import random
+    net = ipaddress.ip_network(cidr)
+    hosts = [str(h) for h in net.hosts()][4:]          # 前幾個留給閘道與網路設備
+    if n >= len(hosts):
+        return hosts
+    rnd = random.Random(cidr)  # noqa: S311  # 挑示範位址用，不是密碼學用途
+    return sorted(rnd.sample(hosts, n), key=lambda s: ipaddress.ip_address(s))
+
+
+def _all_addresses(api: Api) -> dict[str, str]:
+    """全部 IP（ip → id）。超過一頁要翻頁 —— 一千多筆時 _existing 只看得到前 500 筆，重跑會重複建立。"""
+    out: dict[str, str] = {}
+    page = 1
+    while True:
+        st, body = api.call("GET", f"/addresses?page_size=1000&page={page}")
+        if st != 200:
+            break
+        items = body.get("items", [])
+        out.update({str(i["ip"]): str(i["id"]) for i in items})
+        if len(items) < 1000:
+            break
+        page += 1
+    return out
+
+
+def _busy_api(api: Api, loc_ids: dict[str, str], rack_ids: dict[str, str], sec_ids: dict[str, str],
+              subnet_ids: dict[str, str], ip_ids: dict[str, str], dev_ids: dict[str, str]) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    for name, desc in BUSY_SECTIONS:
+        if name not in sec_ids:
+            st, body = api.call("POST", "/sections", {"name": name, "description": desc})
+            if st >= 400:
+                print(f"  ! section {name}: {st} {body}")
+            else:
+                sec_ids[name] = body["id"]
+
+    cust_ids = _existing(api, "/customers")
+    for name, desc in BUSY_CUSTOMERS:
+        if name not in cust_ids:
+            st, body = api.call("POST", "/customers", {"name": name, "description": desc})
+            if st >= 400:
+                print(f"  ! customer {name}: {st} {body}")
+            else:
+                cust_ids[name] = body["id"]
+
+    agent_ids = _existing(api, "/scan-agents", page_size=200)        # 這支上限 200
+    for name, _ago in BUSY_AGENTS:
+        if name not in agent_ids:
+            st, body = api.call("POST", "/scan-agents", {"name": name})
+            if st >= 400:
+                print(f"  ! scan agent {name}: {st} {body}")
+            else:
+                agent_ids[name] = body["id"]
+    print(f"掃描代理 {len(agent_ids)}")
+
+    def place(loc: str, cust: str | None, agent: str | None) -> dict[str, Any]:
+        p: dict[str, Any] = {"location_id": loc_ids.get(loc), "customer_id": cust_ids.get(cust) if cust else None}
+        if agent and agent in agent_ids:
+            p.update(scan_agent_id=agent_ids[agent], scan_enabled=True)
+        return p
+
+    for cidr, (loc, cust, agent) in BUSY_CORE_SUBNETS.items():
+        if cidr in subnet_ids:
+            st, body = api.call("PATCH", f"/subnets/{subnet_ids[cidr]}", place(loc, cust, agent))
+            if st >= 400:
+                print(f"  ! subnet {cidr}: {st} {body}")
+    for sec, cidr, desc, loc, cust, agent, *_ in BUSY_SUBNETS:
+        if cidr in subnet_ids or sec not in sec_ids:
+            continue
+        st, body = api.call("POST", "/subnets", {"section_id": sec_ids[sec], "cidr": cidr, "description": desc,
+                                                 **place(loc, cust, agent)})
+        if st >= 400:
+            print(f"  ! subnet {cidr}: {st} {body}")
+        else:
+            subnet_ids[cidr] = body["id"]
+    print(f"子網路 {len(subnet_ids)}")
+
+    # IP：裝置的主要位址先建（主機名稱＝裝置名稱），其餘照每個網段要填的筆數補
+    ip_ids.update(_all_addresses(api))
+    wanted: list[tuple[str, str, str, str]] = []          # (ip, subnet_id, hostname, description)
+    taken = set(ip_ids)
+    for name, _t, vendor, model, _r, _u, _s, ip in BUSY_DEVICES:
+        if ip and ip not in taken:
+            sid = next((subnet_ids[c] for _sec, c, *_ in BUSY_SUBNETS
+                        if c in subnet_ids and _in(ip, c)), None)
+            if sid:
+                wanted.append((ip, sid, name, f"{vendor} {model}"))
+                taken.add(ip)
+    for _sec, cidr, _d, _l, _c, _a, n, prefix, desc in BUSY_SUBNETS:
+        if cidr not in subnet_ids or not n:
+            continue
+        hosts = _fill_hosts(cidr, n)
+        for i, ip in enumerate(hosts, 1):
+            if ip not in taken:
+                wanted.append((ip, subnet_ids[cidr], f"{prefix}-{i:03d}", desc))
+                taken.add(ip)
+
+    def create(item: tuple[str, str, str, str]) -> tuple[str, int, Any]:
+        ip, sid, host, desc = item
+        st_, body_ = api.call("POST", "/addresses", {"subnet_id": sid, "ip": ip, "hostname": host,
+                                                     "description": desc, "mac": _demo_mac(ip)})
+        return ip, st_, body_
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for ip, st, body in pool.map(create, wanted):
+            if st >= 400:
+                print(f"  ! ip {ip}: {st} {body}")
+            else:
+                ip_ids[ip] = body["id"]
+    print(f"IP {len(ip_ids)}")
+
+    for name, loc, u, w, d, x, y in BUSY_RACKS:
+        if name in rack_ids or loc not in loc_ids:
+            continue
+        st, body = api.call("POST", "/racks", {"name": name, "location_id": loc_ids[loc], "u_height": u,
+                                               "width_mm": w, "depth_mm": d})
+        if st >= 400:
+            print(f"  ! rack {name}: {st} {body}")
+            continue
+        rack_ids[name] = body["id"]
+        api.call("PATCH", f"/racks/{rack_ids[name]}", {"pos_x": x, "pos_y": y})
+
+    for name, dtype, vendor, model, rack, u_pos, u_size, ip in BUSY_DEVICES:
+        if name in dev_ids:
+            continue
+        payload: dict[str, Any] = {"name": name, "type": dtype, "vendor": vendor, "model": model,
+                                   "u_position": u_pos, "u_size": u_size, "rack_face": "front"}
+        if rack in rack_ids:
+            payload["rack_id"] = rack_ids[rack]
+            room = next((loc for rn, loc, *_ in RACKS + BUSY_RACKS if rn == rack), None)
+            if room in loc_ids:
+                payload["location_id"] = loc_ids[room]
+        if ip and ip in ip_ids:
+            payload["primary_ip_id"] = ip_ids[ip]
+        st, body = api.call("POST", "/devices", payload)
+        if st >= 400:
+            print(f"  ! device {name}: {st} {body}")
+            continue
+        dev_ids[name] = body["id"]
+        if ip and ip in ip_ids:
+            api.call("PATCH", f"/addresses/{ip_ids[ip]}", {"device_id": body["id"]})
+    print(f"裝置 {len(dev_ids)}")
+
+    cert_ids = _existing(api, "/certificates")
+    for name, cn, sans, days in BUSY_CERTS:
+        if name in cert_ids:
+            continue
+        st, body = api.call("POST", "/certificates", {"name": name})
+        if st >= 400:
+            print(f"  ! cert {name}: {st} {body}")
+            continue
+        api.call("POST", f"/certificates/{body['id']}/self-signed",
+                 {"common_name": cn, "sans": sans, "days": days})
+
+
+def _in(ip: str, cidr: str) -> bool:
+    import ipaddress
+    return ipaddress.ip_address(ip) in ipaddress.ip_network(cidr)
+
+
+def _busy_db(db_url: str) -> None:
+    """沒有 API 的部分：掃描代理的最後回報、上線狀態、90 天存活記錄、兩週的 IP 異動、
+    虛擬機、異常觀測。全部標成示範資料（異動的 note、異常的指紋都帶 demo），重跑先刪再寫。
+    只給可丟棄的示範資料庫。"""
+    import subprocess
+
+    agents = "\n".join(
+        f"UPDATE scan_agents SET last_seen_at = now() - interval '{ago} minutes', agent_version = '1.19.0',"  # noqa: S608
+        f" last_source_ip = '10.10.99.{10 + i}' WHERE name = {_sql_str(name)};"
+        for i, (name, ago) in enumerate(BUSY_AGENTS))
+    stale_agents = ", ".join(_sql_str(n) for n, ago in BUSY_AGENTS if ago > 30) or "''"
+    busy_cidrs = ", ".join(f"'{c}'::cidr" for _s, c, *_ in BUSY_SUBNETS)
+    clusters = []
+    for name, kind, loc, nodes, n_vm, cidr, prefix in BUSY_CLUSTERS:
+        node_arr = "ARRAY[" + ", ".join(_sql_str(x) for x in nodes) + "]"
+        clusters.append(f"""
+INSERT INTO virt_clusters (name, type, location_id)
+SELECT {_sql_str(name)}, {_sql_str(kind)}, l.id FROM locations l WHERE l.name = {_sql_str(loc)}
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO virtual_machines (cluster_id, legacy_vmid, name, node, kind, status, vcpus, memory_mb, disk_gb,
+                              primary_ip_id, os_name)
+SELECT c.id, 100 + a.rn, {_sql_str(prefix)} || '-' || a.role || '-' || lpad(a.rn::text, 2, '0'),
+       ({node_arr})[1 + (a.rn % {len(nodes)})], 'vm',
+       CASE WHEN a.rn % 17 = 0 THEN 'stopped' WHEN a.rn % 29 = 0 THEN 'paused' ELSE 'running' END,
+       (ARRAY[2, 4, 4, 8, 16])[1 + a.rn % 5], (ARRAY[4096, 8192, 8192, 16384, 32768])[1 + a.rn % 5],
+       (ARRAY[40, 80, 120, 200])[1 + a.rn % 4], a.id,
+       (ARRAY['Ubuntu 24.04', 'Debian 12', 'Rocky Linux 9', 'Windows Server 2022'])[1 + a.rn % 4]
+  FROM virt_clusters c,
+       (SELECT id, row_number() OVER (ORDER BY ip)::int AS rn,
+               (ARRAY['web', 'app', 'db', 'ci', 'cache', 'api', 'mq'])[1 + (row_number() OVER (ORDER BY ip))::int % 7] AS role
+          FROM ip_addresses WHERE ip << '{cidr}'::cidr AND hostname NOT LIKE 'vm-host-%'
+                                  AND hostname NOT LIKE 'vdi-host-%') a
+ WHERE c.name = {_sql_str(name)} AND a.rn <= {n_vm}
+ON CONFLICT (cluster_id, legacy_vmid) DO NOTHING;""")  # noqa: S608  # 只由上面寫死的常數表組成
+    anomalies = ",\n".join(
+        f"({_sql_str(cat)}, 'demo' || left(md5({_sql_str(cat + ':' + label)}), 28), {_sql_str(label)}, "
+        f"{_sql_str(label) + '::inet' if label[0].isdigit() else 'NULL'}, "
+        f"now() - interval '{mins} minutes', now() - interval '1 minute', false)"
+        for cat, label, mins in BUSY_ANOMALIES)
+
+    sql = f"""
+{agents}
+
+-- 上線狀態：大多上線，少數離線（無線用戶端離線的比例高一點，跟真實的 DHCP 網段一樣），
+-- 少數未知；沒有掃描代理的網段整段未知。用位址的雜湊挑，重跑挑到同一批
+CREATE TEMP TABLE demo_ip AS
+SELECT a.id, a.ip, s.scan_agent_id IS NOT NULL AS scanned,
+       ('x' || substr(md5(host(a.ip)), 1, 8))::bit(32)::int & 2147483647 AS h,
+       s.description AS sdesc
+  FROM ip_addresses a JOIN subnets s ON s.id = a.subnet_id
+ WHERE s.cidr IN ({busy_cidrs});
+UPDATE ip_addresses a SET
+       effective_status = CASE
+         WHEN NOT d.scanned THEN NULL
+         WHEN d.h % 100 < (CASE WHEN d.sdesc LIKE '%Wi-Fi%' THEN 16 ELSE 5 END) THEN 'offline'
+         WHEN d.h % 100 >= 97 THEN NULL
+         ELSE 'online' END,
+       last_seen_scanner = CASE
+         WHEN NOT d.scanned OR d.h % 100 >= 97 THEN NULL
+         WHEN d.h % 100 < (CASE WHEN d.sdesc LIKE '%Wi-Fi%' THEN 16 ELSE 5 END)
+           THEN now() - ((1 + d.h % 9) || ' days')::interval
+         ELSE now() - ((d.h % 20) || ' minutes')::interval END
+  FROM demo_ip d WHERE a.id = d.id;
+-- 掃描代理逾時的網段：最後看到的時間停在代理最後一次回報之前
+UPDATE ip_addresses a SET last_seen_scanner = g.last_seen_at - interval '5 minutes'
+  FROM subnets s JOIN scan_agents g ON g.id = s.scan_agent_id
+ WHERE a.subnet_id = s.id AND g.name IN ({stale_agents}) AND a.effective_status = 'online';
+
+-- 建立時間往前推（一個站台不會所有位址都是今天才登記的）
+UPDATE ip_addresses a SET created_at = now() - (((('x' || substr(md5('c' || host(a.ip)), 1, 8))::bit(32)::int
+       & 2147483647) % 500 + 95) || ' days')::interval;
+
+-- 90 天存活記錄（儀表板的可用性長條、戰情室的可用性主題）。上線的偶爾有一天中斷或部分中斷，
+-- 離線的是最近幾天才斷
+DELETE FROM ip_liveness_days;
+INSERT INTO ip_liveness_days (ip_id, day, up, down, arp_only)
+SELECT a.id, d.day,
+       NOT (off_now AND d.day > current_date - (1 + hh % 9)) AND NOT (r < 6),
+       (off_now AND d.day > current_date - (1 + hh % 9)) OR r < 14,
+       false
+  FROM (SELECT id, ip, effective_status = 'offline' AS off_now,
+               ('x' || substr(md5(host(ip)), 1, 8))::bit(32)::int & 2147483647 AS hh
+          FROM ip_addresses WHERE effective_status IS NOT NULL) a
+ CROSS JOIN LATERAL (SELECT (current_date - g)::date AS day,
+                            (('x' || substr(md5(host(a.ip) || g::text), 1, 8))::bit(32)::int & 2147483647) % 1000 AS r
+                       FROM generate_series(0, 89) g) d;
+
+-- 兩週的 IP 異動（儀表板趨勢、IP 異動記錄頁）。每天幾十筆：上下線、MAC 與主機名稱變更
+DELETE FROM ip_change_log WHERE note = 'demo';
+INSERT INTO ip_change_log (ip_id, subnet_id, ip_text, event_type, field, old_value, new_value, source, note, created_at)
+SELECT a.id, a.subnet_id, host(a.ip), e.ev,
+       CASE WHEN e.ev IN ('online', 'offline') THEN 'effective_status' WHEN e.ev = 'mac_changed' THEN 'mac'
+            ELSE 'hostname' END,
+       CASE e.ev WHEN 'online' THEN 'offline' WHEN 'offline' THEN 'online' ELSE NULL END,
+       CASE e.ev WHEN 'online' THEN 'online' WHEN 'offline' THEN 'offline' ELSE NULL END,
+       'scanner', 'demo',
+       (current_date - x.day) + make_interval(mins => (x.k * 37 + x.day * 11) % 1380 + 30)
+  FROM (SELECT g AS day, k FROM generate_series(0, 13) g,
+               LATERAL generate_series(1, 18 + (g * 7) % 23) k) x
+  JOIN LATERAL (SELECT ia.id, ia.subnet_id, ia.ip FROM demo_ip d JOIN ip_addresses ia ON ia.id = d.id
+                 WHERE d.scanned ORDER BY md5(host(d.ip) || x.day::text || x.k::text) LIMIT 1) a ON true
+  JOIN LATERAL (SELECT (ARRAY['online', 'offline', 'online', 'offline', 'mac_changed', 'hostname_changed'])
+                       [1 + (x.k + x.day) % 6] AS ev) e ON true
+ WHERE (current_date - x.day) + make_interval(mins => (x.k * 37 + x.day * 11) % 1380 + 30) < now();
+
+-- 虛擬機
+{''.join(clusters)}
+
+-- 異常觀測：幾筆還沒處理的（戰情室總覽的「待處理異常」與優先處理事項）
+DELETE FROM anomaly_observations WHERE fingerprint LIKE 'demo%';  -- 真的指紋是十六進位，不會以 demo 開頭
+INSERT INTO anomaly_observations (category, fingerprint, label, ip, first_seen_at, last_seen_at, baseline)
+VALUES {anomalies};
+"""  # noqa: S608  # 只由上面寫死的常數表組成（_sql_str 跳脫），沒有外來輸入
+    try:
+        cmd = ["psql", db_url, "-v", "ON_ERROR_STOP=1", "-q", "-c", sql]  # noqa: S607
+        subprocess.run(cmd, check=True)  # noqa: S603
+        print("中型站台：代理／上線狀態／存活記錄／IP 異動／虛擬機／異常 已寫入（示範用）")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"  ! 寫入中型站台示範資料失敗（需要 psql）：{exc}")
 
 
 if __name__ == "__main__":

@@ -67,3 +67,22 @@ async def test_relations_404_for_unknown_device(client, db_session, auth_headers
     import uuid
     r = await client.get(f"/api/v1/devices/{uuid.uuid4()}/relations", headers=auth_headers)
     assert r.status_code == 404
+
+
+async def test_fallback_prefers_the_os_address_over_the_bmc(client, db_session, auth_headers):
+    """客戶 10-23：DELL R750 有作業系統 198.51.100.13 與 iDRAC 198.51.100.113，沒設主要 IP；
+    關係圖抓到 iDRAC 那一個。沒設主要 IP 時，主機名稱像 BMC（idrac／ilo／ipmi…）的排後面，
+    其他的照位址排；另外帶 more＝這台還有幾個 IP。"""
+    dev = Device(name="DELL R750", type="server")
+    db_session.add(dev)
+    await db_session.flush()
+    sec, sub, _ = await _mk_chain_ip(db_session, cidr="198.51.100.0/24", ip="198.51.100.113", device_id=dev.id)
+    bmc = (await db_session.execute(__import__("sqlalchemy").select(IPAddress).where(IPAddress.ip == "198.51.100.113"))).scalar_one()
+    bmc.hostname = "idrac-ABC1234.example.local"
+    db_session.add(IPAddress(subnet_id=sub.id, ip="198.51.100.13", hostname="r750-1.example.local", device_id=dev.id))
+    await db_session.commit()
+
+    r = await client.get(f"/api/v1/devices/{dev.id}/relations", headers=auth_headers)
+    ip = next(c for c in r.json()["chain"] if c["type"] == "ip")
+    assert ip["label"] == "198.51.100.13"
+    assert ip["more"] == 1

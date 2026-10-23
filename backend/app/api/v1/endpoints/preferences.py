@@ -11,6 +11,8 @@ from app.api.v1.dependencies import CurrentUser
 from app.core.db import get_session
 from app.models.user import UserPreference
 from app.schemas.preferences import UserPreferenceRead, UserPreferenceUpdate
+from app.services.dashboard_subnet_usage import PIN_NAMESPACE as USAGE_PIN_NAMESPACE
+from app.services.dashboard_subnet_usage import sanitize_pins
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -49,6 +51,11 @@ async def update_preferences(
     # mode="json" → UUID / datetime 等型別 dump 成 JSON-safe 字串；
     # pinned_subnet_ids 是 JSONB column，需要 list[str] 才存得進去
     changes = payload.model_dump(exclude_unset=True, mode="json")
+    # 儀表板「IP 使用率」挑的子網路：存之前就拿掉看不到／不存在／已歸檔的，最多 4 個
+    # （受限帳號不能把範圍外的子網路存進來；讀取端 GET /dashboard/subnet-usage 也會再擋一次）
+    pinned = changes.get("pinned")
+    if isinstance(pinned, dict) and USAGE_PIN_NAMESPACE in pinned:
+        pinned[USAGE_PIN_NAMESPACE] = await sanitize_pins(session, user, pinned[USAGE_PIN_NAMESPACE] or [])
 
     if pref is None:
         defaults = _defaults().model_dump()

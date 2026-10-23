@@ -9,6 +9,8 @@ export interface RelationNode {
   platform?: string | null;
   /** 這個裝置節點其實是一台虛擬機（由後端推導） */
   is_vm?: boolean;
+  /** IP 節點：這台裝置另外還有幾個 IP */
+  more?: number;
 }
 
 export async function getAddressRelations(id: string): Promise<RelationNode[]> {

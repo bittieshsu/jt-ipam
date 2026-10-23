@@ -135,7 +135,7 @@ async def test_subnets_total_scales_with_visibility(db_session) -> None:
     await _grant(db_session, user, "subnet", subs[0].id)
 
     out = await list_subnets(
-        user, db_session, section_id=None, archived=False, page=1, page_size=50,
+        user, db_session, section_id=None, archived=False, q=None, page=1, page_size=50,
     )
     assert [i.id for i in out.items] == [subs[0].id]
     assert out.total == 1, (

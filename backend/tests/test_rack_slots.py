@@ -574,7 +574,7 @@ def test_embed_svg_draws_the_side_channels_like_the_screen() -> None:
     import re
 
     from app.services.rack import rack_side_px
-    from app.services.rack_svg import build_rack_svg
+    from app.services.rack_svg import _COLORS, build_rack_svg
 
     dev = [{"name": "srv-a", "type": "server", "u_position": 1, "u_size": 1,
             "rack_slot": 0, "rack_slot_span": 60}]
@@ -587,7 +587,7 @@ def test_embed_svg_draws_the_side_channels_like_the_screen() -> None:
 
     def device_w(svg: str) -> float:
         return float(re.search(r'<rect x="[\d.]+" y="[\d.]+" width="([\d.]+)" '
-                               r'height="[\d.]+" fill="rgba\(107, 114, 128', svg).group(1))
+                               r'height="[\d.]+" fill="' + re.escape(_COLORS["server"]), svg).group(1))
 
     s600, s800 = svg_of("rack", 600), svg_of("rack", 800)
     grow = width_of(s800) - width_of(s600)

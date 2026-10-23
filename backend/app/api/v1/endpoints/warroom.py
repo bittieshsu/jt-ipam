@@ -123,18 +123,23 @@ async def warroom_page(
     page: Annotated[int, Query(ge=1, le=100000)] = 1,
 ) -> dict[str, Any]:
     from app.services.warroom import (
+        ai_audit,
         anomalies,
         assets,
+        availability,
         capacity,
         collection,
         overview,
+        relations,
         services,
+        stats,
         topology,
     )
 
     builders = {"overview": overview.build, "capacity": capacity.build, "topology": topology.build,
                 "services": services.build, "anomalies": anomalies.build, "assets": assets.build,
-                "collection": collection.build}
+                "collection": collection.build, "stats": stats.build, "relations": relations.build,
+                "availability": availability.build, "ai_audit": ai_audit.build}
     if key not in builders:
         raise HTTPException(404, detail=ui_detail("warroom_page_unknown", "unknown war room page", key=key))
     cfg = await wcfg.get_warroom(session)
@@ -171,6 +176,7 @@ class WarroomPatch(StrictModel):
     capacity_crit: int = Field(90, ge=2, le=100)
     language: str = ""
     reduce_motion: bool = False
+    availability_window: str = "7d"
     ai_summary: str = "off"
     display_enabled: bool = False
     principal_user_id: str | None = None

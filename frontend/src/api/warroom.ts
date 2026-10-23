@@ -36,7 +36,8 @@ export interface PageData {
   page: number;
   pages: number;
   total?: number;
-  metrics: Record<string, number | null> | null;
+  /** 數字；null＝無權限；字串「—」＝沒有可用的結果（例如 AI 巡檢未執行或失敗），不是 0 */
+  metrics: Record<string, number | string | null> | null;
   [k: string]: unknown;
 }
 
@@ -91,6 +92,7 @@ export interface WarroomSettings {
   capacity_crit: number;
   language: string;
   reduce_motion: boolean;
+  availability_window: string;
   ai_summary: string;
   display_enabled: boolean;
   principal_user_id: string | null;
