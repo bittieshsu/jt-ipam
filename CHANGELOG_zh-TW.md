@@ -4,6 +4,11 @@
 [Keep a Changelog](https://keepachangelog.com/)；版本對應
 `frontend/package.json` / `backend/app/version.py`。
 
+## [Unreleased]
+
+### 變更
+- 文件站：首頁「畫面導覽」最後加上戰情室（第 15 項）。
+
 ## [1.0.15] - 2026-10-24
 
 ### 新增

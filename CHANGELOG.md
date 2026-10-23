@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/); versions track
 `frontend/package.json` / `backend/app/version.py`.
 
+## [Unreleased]
+
+### Changed
+- Docs site: the screenshots tour on the homepage ends with the war room (item 15).
+
 ## [1.0.15] - 2026-10-24
 
 ### Added
