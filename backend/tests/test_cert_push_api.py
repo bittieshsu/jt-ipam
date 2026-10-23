@@ -64,11 +64,24 @@ async def test_admin_only(client, auth_headers, db_session) -> None:
 
 
 async def test_push_now_returns_a_task(client, auth_headers, monkeypatch) -> None:
-    from app.services.background_tasks import spawn_task as real  # noqa: F401
+    # 推送本身換成立刻結束的假推送：以前真的去連測試位址、要等逾時，背景作業拖進下一支測試還握著
+    # 資料庫鎖，跟下一支建資料撞成死結（CI v1.0.15：test_device_certs_only_for_opnsense setup deadlock）
+    from app.services.cert_push import engine
+
+    async def fake_push(session, target, **_kw):
+        return {"status": "ok", "error": None}
+
+    monkeypatch.setattr(engine, "push_target", fake_push)
     cid, _ = await _cert_with_version(client, auth_headers)
     tid = (await client.post("/api/v1/cert-push-targets", headers=auth_headers, json=_body(cid))).json()["id"]
     r = await client.post(f"/api/v1/cert-push-targets/{tid}/push", headers=auth_headers)
     assert r.status_code == 200 and r.json()["task_id"]
+    # 等背景作業結束再離開，不留給下一支測試
+    import asyncio
+
+    from app.services.background_tasks import _BG_TASKS
+    if _BG_TASKS:
+        await asyncio.wait_for(asyncio.gather(*list(_BG_TASKS), return_exceptions=True), timeout=10)
 
 
 async def test_device_certs_only_for_opnsense(client, auth_headers) -> None:
