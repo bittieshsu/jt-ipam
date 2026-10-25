@@ -6,6 +6,9 @@ based on [Keep a Changelog](https://keepachangelog.com/); versions track
 
 ## [Unreleased]
 
+### Security
+- Removed the unused `zod` dependency (GHSA-mrhx-c7xc-m3w5, memory exhaustion with oversized constrained collections; nothing in jt-ipam imported it).
+
 ### Changed
 - Docs site: the screenshots tour on the homepage ends with the war room (item 15).
 
