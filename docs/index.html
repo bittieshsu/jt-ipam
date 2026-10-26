@@ -248,6 +248,26 @@
   .screen-txt h3{margin:0 0 10px;font-size:25px}
   .screen-txt p{margin:0;color:var(--body);line-height:1.7}
   @media(max-width:820px){.screen-row,.screen-row:nth-child(even){flex-direction:column}.screen-row > .shot-ph,.screen-row > .shot{flex-basis:auto;width:100%}}
+  /* 介紹影片：先放縮圖，點了才載入 YouTube（沒點就不連 YouTube，也不影響載入速度）。
+     中文頁放中文版，英文與日文頁放英文版（沒有日文版影片）。 */
+  .vids{display:grid;grid-template-columns:repeat(2,1fr);gap:26px}
+  @media(max-width:820px){.vids{grid-template-columns:1fr}}
+  .vid-card{padding:0;overflow:hidden;display:flex;flex-direction:column}
+  .vid{position:relative;aspect-ratio:16/9;background:#05080b;overflow:hidden}
+  body.lang-zh .vid.zh,body.lang-en .vid.en,body.lang-ja .vid.ja{display:block}
+  .vid img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .3s}
+  .vid:hover img{transform:scale(1.02)}
+  .vid iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .vid .play{position:absolute;left:50%;top:50%;width:72px;height:50px;margin:-25px 0 0 -36px;border-radius:14px;
+    background:rgba(15,23,42,.78);display:grid;place-items:center;transition:background .15s;pointer-events:none}
+  .vid:hover .play,.vid:focus-visible .play{background:#e11d2a}
+  .vid:focus-visible{outline:3px solid var(--green);outline-offset:-3px}
+  .vid .dur{position:absolute;right:10px;bottom:10px;background:rgba(0,0,0,.78);color:#fff;font-size:12.5px;
+    font-weight:600;padding:2px 7px;border-radius:6px;pointer-events:none}
+  .vid-txt{padding:18px 22px 22px}
+  .vid-txt h3{margin:0 0 8px;font-size:20px}
+  .vid-txt p{margin:0 0 10px;font-size:15px}
+  .vid-txt .yt{font-size:14px;font-weight:600}
   /* 畫面導覽：深綠色帶 + 淺色字，白底擷圖更跳 */
   #screens{background:linear-gradient(180deg,#1d4a38,#143527);border-top:1px solid #0e2a1f;border-bottom:1px solid #0e2a1f}
   .eyebrow{display:inline-block;font-size:13px;font-weight:700;letter-spacing:2px;
@@ -448,7 +468,7 @@
 .src-warn{font-size:14px;line-height:1.7;padding:12px 14px;border-radius:8px;
   background:rgba(240,160,32,.10);border:1px solid rgba(240,160,32,.35)}
 </style>
-<noscript><style>.en{display:initial}</style></noscript>
+<noscript><style>.en{display:initial}.vid.en{display:block}</style></noscript>
 </head>
 <body>
 <script>
@@ -497,6 +517,7 @@
       <button type="button" class="btn btn-ghost btn-sm nav-menu-btn" aria-expanded="false" aria-controls="mnav"><svg class="i-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><svg class="i-close" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg><span class="zh">選單</span><span class="en">Menu</span><span class="ja">メニュー</span></button>
       <a href="#features"><span class="zh">特色</span><span class="en">Features</span><span class="ja">機能</span></a>
       <a href="#integrations"><span class="zh">整合</span><span class="en">Integrations</span><span class="ja">連携</span></a>
+      <a href="#videos"><span class="zh">影片</span><span class="en">Videos</span><span class="ja">動画</span></a>
       <a href="#screens"><span class="zh">畫面</span><span class="en">Screenshots</span><span class="ja">画面</span></a>
       <a href="#enterprise"><span class="zh">企業管理</span><span class="en">Enterprise</span><span class="ja">エンタープライズ</span></a>
       <a href="#ai">AI</a>
@@ -823,6 +844,36 @@
 </section>
 
 
+<section id="videos" class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow"><span class="zh">影片</span><span class="en">Videos</span><span class="ja">動画</span></span>
+      <h2><span class="zh">看影片認識戰情室</span><span class="en">See the war room in motion</span><span class="ja">動画でウォールームを見る</span></h2>
+      <p><span class="zh">兩支影片都是實際畫面錄製，有字幕與配樂；畫面裡的設備、IP 與數字全是展示用的假資料。</span><span class="en">Both videos are recorded from the real screens, with subtitles and music; every device, IP and number in them is demo data.</span><span class="ja">どちらも実際の画面を録画したもので、字幕と音楽付きです（英語版を表示しています）。画面内の機器、IP、数値はすべてデモ用の架空データです。</span></p>
+    </div>
+    <div class="vids">
+      <div class="card vid-card">
+        <a class="vid zh" href="https://www.youtube.com/watch?v=mkYFffnw_AE" data-yt="mkYFffnw_AE" target="_blank" rel="noopener"><img src="shots/video/ai-intel-zh.jpg" width="960" height="540" loading="lazy" alt="jt-ipam 戰情室 AI 情報介紹影片" /><span class="play" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></span><span class="dur">2:21</span></a>
+        <a class="vid en ja" href="https://www.youtube.com/watch?v=qsIquCgbC3Y" data-yt="qsIquCgbC3Y" target="_blank" rel="noopener"><img src="shots/video/ai-intel-en.jpg" width="960" height="540" loading="lazy" alt="jt-ipam War Room AI Intelligence video" /><span class="play" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></span><span class="dur">2:21</span></a>
+        <div class="vid-txt">
+          <h3 id="videos-ai-intel"><span class="zh">戰情室 AI 情報</span><span class="en">War room AI intelligence</span><span class="ja">ウォールームの AI インテリジェンス</span></h3>
+          <p><span class="zh">數字由系統計算，AI 只負責挑選事實、寫成短句，在電視上逐字播報；引用錯誤或改了數字的句子一律退回，改用系統摘要。重大事件不等 AI，右上立即亮起 WARNING，並寫出接在哪台交換器的哪個埠，或 VM 在哪個節點。</span><span class="en">The system computes every number; AI only selects facts and writes short sentences, typed out live on the TV. A sentence that cites the wrong fact or changes a number is rejected and a system summary is used instead. Major events don't wait for AI: a WARNING lights up at once and says which switch port the device is on, or which node a VM runs on.</span><span class="ja">数値はすべてシステムが計算し、AI は事実を選んで短い文にまとめるだけで、テレビに一文字ずつ表示します。引用を誤った文や数値を変えた文は退け、システムの要約に切り替えます。重大なイベントは AI を待たず、右上にすぐ WARNING を表示し、機器がどのスイッチのどのポートにあるか、VM がどのノードで動いているかを示します。</span></p>
+          <a class="yt zh" href="https://www.youtube.com/watch?v=mkYFffnw_AE" target="_blank" rel="noopener">在 YouTube 觀看</a><a class="yt en" href="https://www.youtube.com/watch?v=qsIquCgbC3Y" target="_blank" rel="noopener">Watch on YouTube</a><a class="yt ja" href="https://www.youtube.com/watch?v=qsIquCgbC3Y" target="_blank" rel="noopener">YouTube で見る</a>
+        </div>
+      </div>
+      <div class="card vid-card">
+        <a class="vid zh" href="https://www.youtube.com/watch?v=7jDtX3O6470" data-yt="7jDtX3O6470" target="_blank" rel="noopener"><img src="shots/video/warroom-zh.jpg" width="960" height="540" loading="lazy" alt="jt-ipam 戰情室介紹影片" /><span class="play" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></span><span class="dur">4:43</span></a>
+        <a class="vid en ja" href="https://www.youtube.com/watch?v=kCmMcmBs_QQ" data-yt="kCmMcmBs_QQ" target="_blank" rel="noopener"><img src="shots/video/warroom-en.jpg" width="960" height="540" loading="lazy" alt="jt-ipam War Room video" /><span class="play" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></span><span class="dur">4:50</span></a>
+        <div class="vid-txt">
+          <h3 id="videos-war-room"><span class="zh">戰情室：12 個主題輪播</span><span class="en">War room: 12 rotating topics</span><span class="ja">ウォールーム：12 テーマの切り替え表示</span></h3>
+          <p><span class="zh">為牆上電視設計的看板，從維運總覽、位址容量、網路關聯、DNS / DHCP / 憑證、異常與曝露、資產、採集健康，到 IP 統計、物件關係、可用性追蹤、AI 巡檢結果與 AI 情報，依播放清單逐一輪播；最後介紹戰情室設定。</span><span class="en">A board built for a wall TV, rotating through the playlist: overview, address capacity, network relations, DNS / DHCP / certificates, anomalies and exposure, assets, collection health, IP statistics, relationships, availability tracking, AI audit results and AI intelligence, followed by the war room settings.</span><span class="ja">壁掛けテレビ向けのボードで、概要、アドレス容量、ネットワークの関係、DNS / DHCP / 証明書、異常と露出、資産、収集の健全性から、IP 統計、オブジェクト関係、可用性トラッキング、AI 巡回点検結果、AI インテリジェンスまでをプレイリストで順に表示します。最後にウォールームの設定を紹介します。</span></p>
+          <a class="yt zh" href="https://www.youtube.com/watch?v=7jDtX3O6470" target="_blank" rel="noopener">在 YouTube 觀看</a><a class="yt en" href="https://www.youtube.com/watch?v=kCmMcmBs_QQ" target="_blank" rel="noopener">Watch on YouTube</a><a class="yt ja" href="https://www.youtube.com/watch?v=kCmMcmBs_QQ" target="_blank" rel="noopener">YouTube で見る</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section id="screens">
   <div class="wrap">
     <div class="sec-head">
@@ -962,7 +1013,7 @@
       <div class="screen-txt">
         <span class="num">15</span>
         <h3 id="screens-war-room"><span class="zh">戰情室（大螢幕看板）</span><span class="en">War room (big-screen board)</span><span class="ja">ウォールーム（大画面ボード）</span></h3>
-        <p><span class="zh">為牆上電視設計的看板：總覽、位址容量、網路關聯、服務、異常、資產、採集健康，以及選用的 IP 統計、物件關係、可用性追蹤、AI 巡檢結果與 AI 情報，共 12 個主題依播放清單輪播。資料多時分頁而不縮字，可用鍵盤或簡報筆切換；電視可用專用的顯示權杖開啟（關機重開仍有效），部署新版後會自己重新載入並接著播。</span><span class="en">A board built for a wall TV: overview, address capacity, network relations, services, anomalies, assets and collection health, plus optional IP statistics, relationships, availability tracking, AI audit results and AI intelligence, 12 topics rotating through a playlist. Large data is paged instead of shrunk, and a keyboard or presentation clicker switches topics; a TV can open it with a dedicated display token that survives a power cycle, and it reloads itself after a new version is deployed, resuming where it was.</span><span class="ja">壁掛けテレビ向けのボードです。概要、アドレス容量、ネットワークの関係、サービス、異常、資産、収集の健全性に加え、任意の IP 統計、オブジェクト関係、可用性トラッキング、AI 巡回点検結果、AI インテリジェンスの計 12 テーマをプレイリストで切り替えます。データが多いときは文字を縮めずにページ分割し、キーボードやプレゼンターで操作できます。テレビは専用の表示トークンで開けて電源を入れ直しても有効、新しいバージョンを配備すると自動で再読み込みして続きから表示します。</span></p>
+        <p><span class="zh">為牆上電視設計的看板：總覽、位址容量、網路關聯、服務、異常、資產、採集健康，以及選用的 IP 統計、物件關係、可用性追蹤、AI 巡檢結果與 AI 情報，共 12 個主題依播放清單輪播。資料多時分頁而不縮字，可用鍵盤或簡報筆切換；電視可用專用的顯示權杖開啟（關機重開仍有效），部署新版後會自己重新載入並接著播。<a href="#videos" style="color:#6ee7a8;font-weight:600">看介紹影片</a></span><span class="en">A board built for a wall TV: overview, address capacity, network relations, services, anomalies, assets and collection health, plus optional IP statistics, relationships, availability tracking, AI audit results and AI intelligence, 12 topics rotating through a playlist. Large data is paged instead of shrunk, and a keyboard or presentation clicker switches topics; a TV can open it with a dedicated display token that survives a power cycle, and it reloads itself after a new version is deployed, resuming where it was. <a href="#videos" style="color:#6ee7a8;font-weight:600">Watch the videos</a></span><span class="ja">壁掛けテレビ向けのボードです。概要、アドレス容量、ネットワークの関係、サービス、異常、資産、収集の健全性に加え、任意の IP 統計、オブジェクト関係、可用性トラッキング、AI 巡回点検結果、AI インテリジェンスの計 12 テーマをプレイリストで切り替えます。データが多いときは文字を縮めずにページ分割し、キーボードやプレゼンターで操作できます。テレビは専用の表示トークンで開けて電源を入れ直しても有効、新しいバージョンを配備すると自動で再読み込みして続きから表示します。<a href="#videos" style="color:#6ee7a8;font-weight:600">紹介動画を見る</a></span></p>
       </div>
     </div>
   </div>
@@ -1388,6 +1439,29 @@ cd jt-ipam/deploy/docker &amp;&amp; <span class="g">./offline-export.sh</span>  
     }
     document.addEventListener('jtipam:langchange', function(e){ apply(e.detail.lang); });
     apply(cur());
+  })();
+</script>
+<script>
+  // 介紹影片：點縮圖才換成 YouTube 播放器（youtube-nocookie，看影片前不留 cookie）。
+  // 影片編號先比對格式再組網址；沒有 JavaScript 時縮圖本身就是 YouTube 連結。
+  (function(){
+    document.querySelectorAll('a.vid[data-yt]').forEach(function(a){
+      a.addEventListener('click', function(e){
+        var id = a.getAttribute('data-yt') || '';
+        if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return;
+        e.preventDefault();
+        var f = document.createElement('iframe');
+        f.src = 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&rel=0';
+        f.title = (a.querySelector('img') || {}).alt || 'YouTube';
+        f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+        f.allowFullscreen = true;
+        f.referrerPolicy = 'strict-origin-when-cross-origin';
+        var box = document.createElement('div');
+        box.className = a.className;
+        box.appendChild(f);
+        a.replaceWith(box);
+      });
+    });
   })();
 </script>
 <script src="anchors.js" defer></script>
