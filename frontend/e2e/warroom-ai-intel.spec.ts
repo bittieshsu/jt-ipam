@@ -137,7 +137,7 @@ for (const lang of ["zh-TW", "en-US", "ja-JP"]) {
         expect(await overflowing(page)).toEqual([]);
         expect(await brokenAtoms(page)).toEqual([]);
         // 區塊內的列不被自己的框裁掉（來源一頁放幾列要放得下）
-        const cut = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-testid=wr-intel] .ai-row")]
+        const cut = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-testid=wr-intel] .ai-row, [data-testid=wr-intel-warning] > div")]
           .filter((e) => {
             const panel = e.closest(".ai-panel")!.getBoundingClientRect();
             return e.getBoundingClientRect().bottom > panel.bottom - 4;

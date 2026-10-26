@@ -31,6 +31,12 @@ describe("AI 情報逐字播放", () => {
     expect(charDelay("中", 3, { speed: "slow", rhythm: false, seed })).toBeCloseTo(n / 0.7);
   });
 
+  it("全形字（中日韓、全形標點）用中文速度，英數用英文速度", () => {
+    const base = (g: string) => charDelay(g, 0, { speed: "normal", rhythm: false, seed: 0 });
+    for (const g of ["中", "ひ", "カ", "한", "，", "（"]) expect(base(g), g).toBeCloseTo(1000 / 15);
+    for (const g of ["a", "1", ".", "-"]) expect(base(g), g).toBeCloseTo(1000 / 36);
+  });
+
   it("節奏是平滑的：相鄰兩個字的倍率差很小", () => {
     const s = seedOf("x");
     for (let i = 0; i < 100; i++) expect(Math.abs(rhythm(i + 1, s) - rhythm(i, s))).toBeLessThan(0.1);

@@ -51,7 +51,8 @@ export function rhythm(i: number, seed: number): number {
   return 1 + 0.2 * Math.max(-1, Math.min(1, v));
 }
 
-const WIDE = /[⺀-鿿가-힯豈-﫿＀-￯　-〿]/;
+// 全形字：中日韓文字（Unicode 文字屬性）＋全形標點兩段窄範圍（CodeQL js/overly-large-range：不用跨好幾個區塊的大範圍）
+const WIDE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff00-\uffef]/u;
 const COMMA = /^[，、,;；：:]$/;
 const STOP = /^[。．.!?！？]$/;
 

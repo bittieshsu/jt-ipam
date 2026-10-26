@@ -437,7 +437,7 @@ watch(() => props.preview?.state, (s) => { if (s?.batch) { st.value = s; adopt(s
 .no-cursor .ai-cur, .reduce .ai-cur { animation: none; }
 .no-cursor .ai-cur { display: none; }
 @keyframes ai-blink { 50% { opacity: 0; } }
-.ai-side { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1.25fr); gap: 24px; min-height: 0; }
+.ai-side { display: grid; grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; min-height: 0; }
 .ai-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; font-size: 24px; }
 .ai-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto; gap: 14px; align-items: baseline;
   padding: 9px 0; border-bottom: 1px solid color-mix(in srgb, var(--ai-line) 55%, transparent); }
