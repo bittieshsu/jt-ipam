@@ -248,10 +248,11 @@ onMounted(load);
 }
 .usage-hint { font-size: 12.5px; opacity: 0.7; min-width: 0; flex: 1 1 200px; }
 .usage-empty { padding: 24px 0; }
-/* 寬的時候 4 個排一列，窄的時候 2×2，手機 1～2 欄 */
+/* 寬的時候 4 個排一列，窄的時候 2×2，手機 1～2 欄。auto-fit：選不到 4 個時平均撐滿整列，
+   不在右邊留空格（10-24 使用者；auto-fill 會保留空欄） */
 .gauges {
   display: grid; gap: 10px;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 .gauge {
   display: flex; flex-direction: column; align-items: center; min-width: 0;

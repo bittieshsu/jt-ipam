@@ -21,11 +21,69 @@ export interface WarroomConfig {
   group_by: "location" | "section" | "customer";
   language: string;
   reduce_motion: boolean;
+  /** 換頁過場：slide／fade／zoom／rise／wipe／flip */
+  transition?: string;
+  /** 大數字字體（warroomFonts.ts 的鍵） */
+  number_font?: string;
   thresholds: { warn: number; crit: number };
+  /** 12 AI 情報的顯示設定（停留秒數、版面、配色、打字速度…） */
+  intel?: IntelDisplay;
   via: "session" | "display";
   is_admin: boolean;
   /** 顯示範圍（null＝全部）：頁首顯示前幾個名稱 */
   scope: { names: string[]; more: number } | null;
+}
+
+// ── 12 AI 情報（2026-10-26） ──
+export interface IntelColors { bg: string; text: string; secondary: string; accent: string; warn: string; critical: string }
+export interface IntelDisplay {
+  interval_minutes: number; dwell_seconds: number; layout: "three_panel" | "focus"; playback: "rotate" | "pinned";
+  item_limit: number; domains: string[]; speed: "slow" | "normal" | "fast"; rhythm: boolean; cursor: boolean;
+  effects: "clear" | "standard" | "cinema"; scanlines: "off" | "low" | "medium"; noise: "off" | "low";
+  palette: "phosphor" | "amber" | "ice" | "custom"; colors: IntelColors; mask_ips: boolean;
+  warning_enabled: boolean; warning_breathe: boolean;
+}
+export interface IntelSettings extends IntelDisplay { background: boolean; warning_categories: string[] }
+/** 一則播報：模型寫的有 text；系統摘要只有 code＋params（文字依語系組） */
+export interface IntelItem {
+  id: string; fact_ids: string[]; category: string; state: string; subjects?: string[];
+  text?: string; code?: string; params?: Record<string, any>;
+}
+export interface IntelSource { id: string; name: string; kind: string; label: string; last_success_at: string | null;
+  state: "fresh" | "stale" | "failed" | "partial" | "not_configured" | "unknown"; count?: number; stale?: number }
+export interface IntelPinned { kind: "anomaly" | "source"; category?: string; label: string; ip?: string | null;
+  state: string; since: string | null; id: string }
+export interface IntelBatch {
+  id: string; status: "ready" | "empty"; origin: "llm" | "template"; model: string | null; error_code: string | null;
+  baseline: boolean; snapshot_at: string; generated_at: string; checked_at: string; count: number;
+  pinned: IntelPinned[]; sources: IntelSource[]; stats: Record<string, number | null>; items?: IntelItem[];
+}
+export interface IntelState {
+  ai_enabled: boolean; generating: boolean; next_due_at: string | null; last_error_code: string | null;
+  last_attempt_at: string | null; batch: IntelBatch | null; stale: boolean; outdated: boolean;
+}
+export interface IntelEvent { id: string; category: string; label: string; ip: string | null; first_seen_at: string;
+  baseline: boolean; resolved_at: string | null; state: "open" | "resolved" | "unknown";
+  /** 在哪裡（10-26）：VM 的節點，或實體裝置接在哪台交換器的哪個埠；查不到就沒有 */
+  where?: { kind: "vm"; vm: string; node: string | null; cluster: string | null; platform: string | null }
+    | { kind: "port"; switch: string; port: string; vlan: number | null };
+  mac?: string; vendor?: string }
+export interface IntelEvents { state: "ok" | "off" | "forbidden"; items: IntelEvent[]; checked_at?: string | null;
+  detection_stale?: boolean }
+
+/** rev：手上這一批的 id（同一批就不帶正文）；meta：只要資訊不要正文（播別的主題時的心跳） */
+export async function getIntel(rev?: string | null, meta = false): Promise<IntelState> {
+  const { data } = await client().get<IntelState>("/api/v1/warroom/intel",
+                                                  { params: { ...(rev ? { rev } : {}), ...(meta ? { meta: true } : {}) } });
+  return data;
+}
+export async function getIntelEvents(): Promise<IntelEvents> {
+  const { data } = await client().get<IntelEvents>("/api/v1/warroom/intel/events");
+  return data;
+}
+export async function generateIntelNow(): Promise<{ started: boolean }> {
+  const { data } = await apiClient.post("/api/v1/system/warroom/intel/generate");
+  return data;
 }
 
 export interface Section<T = Record<string, unknown>> { state: "ok" | "empty" | "forbidden" | "disabled"; [k: string]: unknown; items?: T[] }
@@ -92,8 +150,13 @@ export interface WarroomSettings {
   capacity_crit: number;
   language: string;
   reduce_motion: boolean;
+  /** 換頁過場：slide／fade／zoom／rise／wipe／flip */
+  transition?: string;
+  /** 大數字字體（warroomFonts.ts 的鍵） */
+  number_font?: string;
   availability_window: string;
   ai_summary: string;
+  intel: IntelSettings;
   display_enabled: boolean;
   principal_user_id: string | null;
   token_set: boolean;

@@ -148,6 +148,48 @@ test("從 IP 頁評估改址：看到引用、證據、缺口與模板待辦，�
   await expect(page.locator(".n-message")).toContainText(/不能覆核自己的計畫|需要處置|reason|理由/);
 });
 
+test("審核視窗：有阻擋項目或有看不到的需覆核項目時，先講明並停用核准（2026-10-25 實測）", async ({ page, request }) => {
+  const auth = { Authorization: `Bearer ${await token(request)}` };
+  await request.put("/api/v1/change-impact/settings", { headers: auth, data: { enabled: true, allow_self_review: true } });
+  const plan = await (await request.post("/api/v1/change-plans", { headers: auth, data: {
+    title: "e2e review guard", scenario_type: "ip_renumber", target_type: "ip_address", target_id: ipId,
+    parameters: { new_ip: "198.51.100.78" } } })).json();
+  const run = await (await request.post(`/api/v1/change-plans/${plan.id}/runs`, { headers: auth })).json();
+  await expect.poll(async () => (await (await request.get(`/api/v1/impact-runs/${run.id}`, { headers: auth })).json()).job_status,
+                    { timeout: 60_000 }).toMatch(/completed|partial/);
+  expect((await request.post(`/api/v1/change-plans/${plan.id}/transitions`, { headers: auth, data: { action: "submit" } })).ok()).toBeTruthy();
+  try {
+    await login(page);
+    for (const [patch, alertId] of [[{ decision_status: "blocked" }, "cip-review-blocked"],
+                                    [{ decision_status: "needs_review", review_items_hidden: true }, "cip-review-hidden"]] as const) {
+      await page.unroute(`**/api/v1/impact-runs/${run.id}`);
+      await page.route(`**/api/v1/impact-runs/${run.id}`, async (route) => {
+        const r = await route.fetch();
+        await route.fulfill({ response: r, json: { ...(await r.json()), ...patch } });
+      });
+      await page.goto(`/change-impact/${plan.id}`);
+      await expect(page.getByTestId("cip-summary")).toBeVisible({ timeout: 30_000 });
+      await page.getByTestId("cip-act-review").click();
+      await expect(page.getByTestId(alertId)).toBeVisible();
+      const radios = page.locator(".n-modal .n-radio-button");
+      await expect(radios.filter({ hasText: /^核准$/ })).toHaveClass(/disabled/);
+      await expect(radios.filter({ hasText: "接受風險後核准" })).toHaveClass(/disabled/);
+      await expect(radios.filter({ hasText: "退回修改" })).toHaveClass(/checked/);
+      await page.keyboard.press("Escape");
+    }
+    // 退回修改：計畫頁最上面看得到誰退回、理由（以前只在歷史頁籤）
+    await page.unroute(`**/api/v1/impact-runs/${run.id}`);
+    const rv = await request.post(`/api/v1/change-plans/${plan.id}/reviews`, { headers: auth,
+      data: { decision: "request_changes", rationale: "e2e：請改用另一個位址", dispositions: {} } });
+    expect(rv.ok(), await rv.text()).toBeTruthy();
+    await page.goto(`/change-impact/${plan.id}`);
+    await expect(page.getByTestId("cip-returned")).toContainText("e2e：請改用另一個位址");
+    await expect(page.getByTestId("cip-returned")).toContainText("退回修改");
+  } finally {
+    await request.post(`/api/v1/change-plans/${plan.id}/transitions`, { headers: auth, data: { action: "cancel" } });
+  }
+});
+
 test("從清單頁新增：先選子網路（輸入 IP 找包含它的子網路），IP 自動帶入；按鈕都有圖示", async ({ page, request }) => {
   const auth = { Authorization: `Bearer ${await token(request)}` };
   await request.put("/api/v1/change-impact/settings", { headers: auth, data: { enabled: true } });

@@ -113,6 +113,9 @@ CATEGORY: dict[str, str] = {
     "scan_agent_cycles": "operational",
     # 異常觀測（0224）：每一筆異常出現到消失的期間，戰情室時序用；消失後保留 90 天
     "anomaly_observations": "operational",
+    # 戰情室 12 AI 情報（0231）：播報流（誰在看、租約）與播報批次（最多 24 小時）；換一台重新產生就有
+    "warroom_intel_streams": "operational",
+    "warroom_intel_batches": "operational",
     "cert_agents": "integrations",
     "cert_push_targets": "integrations",
     "webhook_subscriptions": "integrations",

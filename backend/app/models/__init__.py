@@ -132,6 +132,7 @@ from app.models.virt import (
 )
 from app.models.vlan import VLAN, DeviceVLAN, VLANDomain
 from app.models.vrf import VRF
+from app.models.warroom_intel import WarroomIntelBatch, WarroomIntelStream
 from app.models.wazuh import WazuhAgent, WazuhInstance
 from app.models.windows_dhcp import WindowsDhcpServer
 from app.models.zabbix import ZabbixHost, ZabbixInstance
@@ -255,6 +256,8 @@ __all__ = [
     "VPNTunnel",
     "VirtCluster",
     "VirtualMachine",
+    "WarroomIntelBatch",
+    "WarroomIntelStream",
     "WazuhAgent",
     "WazuhInstance",
     "WebhookSubscription",

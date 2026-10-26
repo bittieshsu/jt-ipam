@@ -179,6 +179,11 @@ onMounted(() => {
           <n-descriptions-item :label="t('common.subnet_count')">{{ section.subnet_count ?? 0 }}</n-descriptions-item>
           <n-descriptions-item :label="t('sections.strict_mode')">{{ section.strict_mode ? "✓" : "—" }}</n-descriptions-item>
           <n-descriptions-item :label="t('custom_fields.display_order')">{{ section.display_order }}</n-descriptions-item>
+          <!-- phpIPAM 相容 ID：Proxmox VE SDN 的 phpIPAM 外掛「區段」欄位只收整數，填這個（10-24） -->
+          <n-descriptions-item :label="t('sections.compat_id')">
+            <span data-testid="section-compat-id">{{ section.compat_id ?? "—" }}</span>
+            <span style="margin-left: 10px; font-size: 12px; opacity: .65">{{ t("sections.compat_id_hint") }}</span>
+          </n-descriptions-item>
           <n-descriptions-item :label="t('common.description')" :span="2">
             {{ section.description ?? "—" }}
           </n-descriptions-item>

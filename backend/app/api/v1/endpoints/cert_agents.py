@@ -451,7 +451,7 @@ async def get_agent_key(
     key = await _load_agent_key(session, agent_id)
     if key is None:
         raise HTTPException(404, detail=ui_detail("cert_agent_no_stored_key",
-                            "此代理未保存金鑰（可能建立於舊版），請輪替金鑰取得新的"))
+                            "此代理未儲存金鑰（可能建立於舊版），請輪替金鑰取得新的"))
     await _agent_audit(session, user, request, obj=obj, action="cert_agent_key_view")
     await session.commit()
     return {"enroll_key": key}

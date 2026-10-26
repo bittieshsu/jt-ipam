@@ -79,15 +79,20 @@
 | `GET /addresses/{ip}/{subnetId}/` | IP とサブネットで指定 |
 | `GET /addresses/search/{ip}/` | 全体を検索 |
 | `GET /addresses/search_hostname/{hostname}/` | ホスト名で検索 |
+| `GET /addresses/search_mac/{mac}/` | MAC で検索（書式は任意） |
 | `GET /addresses/first_free/{subnetId}/` | 最初の空き |
 | `GET /addresses/custom_fields/` | カスタム項目の定義 |
 | `GET /addresses/tags/` | 状態のタグ |
 | `GET /addresses/tags/{id}/addresses/` | その状態を持つすべての IP |
 | `POST /addresses/` | 作成 |
 | `POST /addresses/first_free/` | 最初の空きを確保 |
+| `POST /addresses/first_free/{subnetId}/` | 次の空きアドレスを確保し IP 文字列を返す（Proxmox VE SDN） |
 | `PATCH /addresses/{id}/` | 更新 |
 | `DELETE /addresses/{id}/` | 削除 |
 | `DELETE /addresses/{ip}/{subnetId}/` | IP とサブネットで削除 |
+
+> **Proxmox VE SDN（phpIPAM プラグイン）**：パス末尾のスラッシュは任意でリダイレクトしません。PVE のセクションは整数しか受け付けないため、セクションは UUID・名前・数字の互換 ID（`compatId`、セクションページに表示）のどれでも指定できます。POST/PATCH addresses の `is_gateway: 1` でサブネットのゲートウェイを設定します。2026-10-24 にプラグインの実際の呼び出しどおりに検証済み。
+
 
 **内部モデルとの対応**：`IPAddress`。phpIPAM では「状態」をタグと呼ぶ点に注意してください。
 

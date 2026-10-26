@@ -1,4 +1,4 @@
-# jt-ipam v1.0.15
+# jt-ipam v1.0.16
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -21,7 +21,7 @@
 
 Familiar to phpIPAM users so they are productive from day one, but built from scratch on a modern stack (not based on phpIPAM's codebase). Deep integrations:
 
-- **DNS**: PowerDNS, BIND 9, OPNsense Unbound, Univention UCS, Microsoft Windows DNS, Technitium DNS Server (reads forward/reverse status, optional record push; Technitium is read-only; Windows DNS over WinRM HTTP 5985 with forced NTLM encryption by default, or HTTPS 5986)
+- **DNS**: PowerDNS, BIND 9, OPNsense Unbound, Univention UCS, Microsoft Windows DNS, Technitium DNS Server (read-only: reads forward/reverse records and their consistency, never writes to the DNS server; Windows DNS over WinRM HTTP 5985 with forced NTLM encryption by default, or HTTPS 5986)
 - **LibreNMS**: device sync, ARP / FDB harvesting, online-status reconciliation, auto-onboarding to monitoring
 - **SNMP collection (scan agents)**: for networks without LibreNMS, the scan agent responsible for a subnet reads the network devices you assign to it over read-only SNMP v2c/v3 (credentials managed centrally, never returned by the API): router ARP tables fill MACs the agent cannot see across a router, switch MAC tables (Q-BRIDGE / BRIDGE-MIB, Cisco per VLAN) locate hosts on switch ports, LLDP / CDP neighbors draw switch links in the topology, and interfaces become device ports. The agent installer adds the net-snmp client tools (`snmp` / `net-snmp-utils` / `net-snmp-tools`)
 - **Zabbix**: read-only complement on the monitoring side, providing host-to-IP mapping, availability as an extra evidence source for effective status, maintenance windows, and a **monitoring coverage gap** (addresses IPAM has a hostname for that Zabbix is not watching). ARP/FDB stay with LibreNMS; they are not part of Zabbix's built-in data

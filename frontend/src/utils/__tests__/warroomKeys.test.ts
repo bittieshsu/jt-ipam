@@ -11,7 +11,7 @@ import { HANDLED_KEYS, keyAction, warroomKeyRows } from "../warroomKeys";
 
 const DISPLAY_TO_EVENT: Record<string, string[]> = {
   "←": ["ArrowLeft"], "→": ["ArrowRight"], "↑": ["ArrowUp"], "↓": ["ArrowDown"],
-  PgUp: ["PageUp"], PgDn: ["PageDown"], Space: [" "], Esc: ["Escape"], H: ["h", "H"],
+  PgUp: ["PageUp"], PgDn: ["PageDown"], Space: [" "], Esc: ["Escape"], H: ["h", "H"], P: ["p", "P"],
 };
 
 function listedEventKeys(topics: number): Set<string> {
@@ -51,5 +51,11 @@ describe("戰情室按鍵清單", () => {
       expect(src, f).toContain("warroomKeyRows(");
       expect(src, f).not.toMatch(/<kbd>[^<{]+<\/kbd>/);
     }
+  });
+
+  it("P 釘選目前主題（10-26 使用者：繼續播、不暫停，再按一次恢復輪主題）", () => {
+    expect(keyAction("p")).toBe("pin");
+    expect(keyAction("P")).toBe("pin");
+    expect(warroomKeyRows(7).some((r) => r.keys.includes("P") && r.label === "warroom.keys_pin")).toBe(true);
   });
 });

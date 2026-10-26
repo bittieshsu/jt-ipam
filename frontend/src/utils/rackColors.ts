@@ -9,7 +9,8 @@ export const RACK_DEVICE_TYPES = [
 
 /** 「其他」與沒分類的底色（匯出 SVG／draw.io 用；畫面另加斜紋） */
 export const RACK_OTHER_COLOR = "rgba(107, 114, 128, 0.7)";
-const OTHER_STRIPES = "repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0 5px, rgba(255, 255, 255, 0) 5px 11px)";
+// 細線、間距寬、對比低：1U 看得出是「其他」，2～4U 的大面積也不會一片密紋看了眼花（10-24 客戶）
+const OTHER_STRIPES = "repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.13) 0 2px, rgba(255, 255, 255, 0) 2px 14px)";
 
 /** 畫面上的底（CSS background）：「其他」與沒分類的是灰底加斜紋 */
 export function rackTypeFill(type: string): string {

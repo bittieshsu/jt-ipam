@@ -17,6 +17,9 @@
             <span v-for="k in LEGEND" :key="k" class="irg-legend">
               <span class="irg-dot" :style="{ background: COLOR[k] }" />{{ t(`change_impact.impact.${k}`) }}
             </span>
+            <span v-if="hasBlocker" class="irg-legend" data-testid="cip-graph-legend-blocker">
+              <span class="irg-dot irg-dot--blocker" />{{ t("change_impact.graph_blocker") }}
+            </span>
             <span v-if="data.truncated" class="irg-muted">{{ t("change_impact.graph_truncated", { n: data.limit, total: data.total_nodes }) }}</span>
           </div>
           <!-- 按鈕是一組、不拆開折行（放不下時整組換到下一行） -->
@@ -67,7 +70,7 @@
           <li v-for="(e, i) in data.edges.filter((x) => x.from !== x.to)" :key="i">
             <span class="irg-dot" :style="{ background: colorOf(e.from) }" />
             <strong>{{ nameOf(e.from) }}</strong>
-            <span class="irg-muted"> {{ relText(e.relation, nodeOf(e.from)?.type) }} → </span>
+            <span class="irg-muted"> {{ relText(e.relation, nodeOf(e.from)?.type, e.from) }} → </span>
             <strong>{{ nameOf(e.to) }}</strong>
           </li>
         </ul>
@@ -103,6 +106,8 @@
                 <n-tag size="small" :bordered="false">{{ typeLabel(pickedGroup.type, pickedGroup.category) }}</n-tag>
                 <n-tag size="small" :bordered="false" :color="impactTagColor(pickedGroup.impact)">
                   {{ t(`change_impact.impact.${pickedGroup.impact}`) }}</n-tag>
+                <n-tag v-if="pickedGroup.members.some((m) => m.blocker)" size="small" type="error" :bordered="false">
+                  {{ t("change_impact.disposition.blocker") }}</n-tag>
               </div>
               <div v-if="pickedGroup.relation !== 'mixed'" class="irg-sec-cap">
                 {{ relText(pickedGroup.relation, pickedGroup.type) }} → {{ nameOf(pickedGroup.neighbor) }}</div>
@@ -123,13 +128,15 @@
                   {{ t("change_impact.graph_root") }}</n-tag>
                 <n-tag v-else-if="picked.impact" size="small" :bordered="false" :color="impactTagColor(picked.impact)">
                   {{ t(`change_impact.impact.${picked.impact}`) }}</n-tag>
+                <n-tag v-if="picked.blocker" size="small" type="error" :bordered="false" data-testid="cip-graph-picked-blocker">
+                  {{ t("change_impact.disposition.blocker") }}</n-tag>
               </div>
               <section v-if="pickedReasons.length" class="irg-sec">
                 <div class="irg-sec-h">{{ picked.root ? t("change_impact.graph_about_target") : t("change_impact.graph_why") }}</div>
                 <ul class="irg-reasons"><li v-for="(r, i) in pickedReasons" :key="i">{{ r }}</li></ul>
               </section>
               <section v-for="grp in pickedRels" :key="grp.key" class="irg-sec" data-testid="cip-graph-rel-group">
-                <div class="irg-sec-h">{{ relText(grp.relation, grp.fromType) }}<span class="irg-count">{{ grp.items.length }}</span></div>
+                <div class="irg-sec-h">{{ grp.label }}<span class="irg-count">{{ grp.items.length }}</span></div>
                 <div class="irg-sec-cap">{{ grp.dir === "in" ? t("change_impact.graph_rel_in_cap", { name: nameOf(picked.id) })
                   : t("change_impact.graph_rel_out_cap", { name: nameOf(picked.id) }) }}</div>
                 <ul class="irg-items">
@@ -183,7 +190,7 @@ import { download } from "@/utils/tableExport";
 import { apiErrMsg } from "@/api/client";
 import { getRunRelations, type RelationGraph, type RelationNode } from "@/api/changeImpact";
 import {
-  IMPACT_RANK, groupRelationGraph, ringLayout, subjectLink, treePositions, type GraphGroup,
+  IMPACT_RANK, groupRelationGraph, mergeParallelEdges, ringLayout, subjectLink, treePositions, type GraphGroup,
 } from "@/utils/impactGraph";
 import { iconDataUri, iconFor } from "@/utils/impactGraphIcons";
 
@@ -246,6 +253,7 @@ const EDGE_LABELS_MAX = 6;
 const MINI_W = 180, MINI_H = 120, MINI_PAD = 8;
 
 function nodeOf(id: string) { return data.value?.nodes.find((n) => n.id === id); }
+const BLOCKER_COLOR = "#d03050";
 function impactColor(impact: string | null | undefined) { return impact ? COLOR[impact] ?? "#909399" : "#5c6370"; }
 /** 評估目標用中性色（規劃人員：目標是綠色、明細又寫「僅有引用」，會被誤認為已判定沒有影響） */
 function rootColor() { return isDark() ? "#94a3b8" : "#475569"; }
@@ -273,7 +281,15 @@ function nameOf(id: string): string {
   return role ? t("change_impact.graph_named", { role, name: n.label }) : n.label;
 }
 /** 關係的白話說法：通用的「設定裡寫著這個位址」依引用方的類型講具體（規劃人員：「DNS 紀錄指向」「監控目標」…） */
-function relText(r: string, fromType?: string | null) {
+function relText(r: string, fromType?: string | null, fromId?: string) {
+  // 同一種物件可能因為不同規則出現（IP 位址：新位址已登記、或說明裡提到舊位址）：先看引用方的規則
+  // （2026-10-25 實測：說明提到舊位址的 IP 被寫成「新位址已登記在 IPAM」）
+  if (fromId && (r === "references" || r === "observed_on")) {
+    for (const rule of nodeOf(fromId)?.rules ?? []) {
+      const k = `change_impact.graph_rule.${rule.rule_id.replace(/\./g, "_")}`;
+      if (te(k)) return t(k);
+    }
+  }
   if (fromType && (r === "references" || r === "observed_on") && te(`change_impact.graph_ref.${fromType}`)) {
     return t(`change_impact.graph_ref.${fromType}`);
   }
@@ -294,6 +310,7 @@ function groupName(g: { category: string | null; type: string; members?: unknown
   return t("change_impact.graph_group", { name: typeLabel(g.type, g.category), n: g.count ?? g.members?.length ?? 0 });
 }
 // 圖例的類型：同一個名稱只列一次（IP 位址的兩種類型以前列了兩次）
+const hasBlocker = computed(() => !!data.value?.nodes.some((n) => n.blocker));
 const presentTypes = computed(() => {
   const seen = new Map<string, string>();
   for (const n of data.value?.nodes ?? []) if (!seen.has(typeLabel(n.type))) seen.set(typeLabel(n.type), n.type);
@@ -304,7 +321,7 @@ const presentTypes = computed(() => {
 let lastGraph: ReturnType<typeof groupRelationGraph> | null = null;
 function groupById(id: string) { return lastGraph?.groups[id] ?? null; }
 interface RelItem { id: string; name: string; type: string; color: string }
-interface RelGroup { key: string; dir: "in" | "out"; relation: string; fromType: string; items: RelItem[] }
+interface RelGroup { key: string; dir: "in" | "out"; relation: string; fromType: string; label: string; items: RelItem[] }
 const pickedRels = computed<RelGroup[]>(() => {
   const n = picked.value;
   if (!n || !lastGraph) return [];
@@ -315,8 +332,9 @@ const pickedRels = computed<RelGroup[]>(() => {
     const other = dir === "in" ? e.from : e.to;
     const otherNode = lastGraph.nodes.find((x) => x.id === other);
     const fromType = (dir === "in" ? otherNode?.type : n.type) ?? "";
-    const key = `${dir}|${e.relation}|${fromType}`;
-    const grp = groups.get(key) ?? { key, dir, relation: e.relation, fromType, items: [] };
+    const label = relText(e.relation, fromType, dir === "in" ? other : n.id);
+    const key = `${dir}|${label}`;
+    const grp = groups.get(key) ?? { key, dir, relation: e.relation, fromType, label, items: [] };
     grp.items.push({ id: other, name: otherNode?.group ? groupName(otherNode) : nameOf(other),
                      type: otherNode?.type ?? "", color: otherNode ? nodeColor(otherNode) : impactColor(null) });
     groups.set(key, grp);
@@ -380,6 +398,7 @@ function draw() {
         const label = n.group ? groupName(n) : nameOf(n.id);
         return {
           data: { id: n.id, label, color, type: n.type, root: n.root ? 1 : 0, group: n.group ? 1 : 0, impact: n.impact ?? "",
+                  blocker: n.blocker ? 1 : 0,
                   rank: n.root ? -1 : IMPACT_RANK[n.impact ?? ""] ?? 9,
                   // 樹狀的卡片是淺底，圖示用影響顏色；其他排列是影響顏色的底配白色圖示（根目標卡片是深底）
                   icon: tree && !n.root ? iconDataUri(n.type, color) : iconDataUri(n.type),
@@ -387,8 +406,9 @@ function draw() {
           classes: tree ? "card" : "",
         };
       }),
-      ...g.edges.map((e) => ({ data: { id: e.id, source: e.from, target: e.to,
-                                       label: relText(e.relation, g.nodes.find((x) => x.id === e.from)?.type),
+      ...mergeParallelEdges(g.edges).map((e) => ({ data: { id: e.id, source: e.from, target: e.to,
+                                       label: [...new Set(e.relations.map((r) =>
+                                         relText(r, g.nodes.find((x) => x.id === e.from)?.type, e.from)))].join("\n"),
                                        dashed: e.strength === "inferred" ? 1 : 0, prop: e.propagates ? 1 : 0,
                                        toRoot: rootIds.has(e.to) ? 1 : 0 },
                                classes: showAll ? "lbl" : "" })),
@@ -413,6 +433,9 @@ function draw() {
       { selector: "node.card[root = 1]", style: { "background-color": dark ? "#e5e7eb" : "#1f2328", color: bg,
                                                   "border-color": dark ? "#e5e7eb" : "#1f2328" } },
       // 線：只是設定裡寫著位址＝淡色細線；對方停機這裡也斷＝深色粗線；推定的＝虛線
+      // 阻擋項目：紅色粗框（2026-10-25 實測：跟其他「可能中斷」長得一樣，審核人看圖找不到）
+      { selector: "node[blocker = 1]", style: { "border-width": 4, "border-color": BLOCKER_COLOR, "border-style": "double" } },
+      { selector: "node.card[blocker = 1]", style: { "border-width": 3, "border-color": BLOCKER_COLOR, "border-style": "solid" } },
       { selector: "edge", style: { width: 1.2, "line-color": lineRef, "target-arrow-color": lineRef,
                                    "target-arrow-shape": "triangle", "arrow-scale": 0.7,
                                    // 樹狀：轉折點靠近上一層，線上的字才落在各自那一段水平線上（不會疊在共用的直線上）
@@ -724,6 +747,7 @@ onBeforeUnmount(() => { window.removeEventListener("resize", onResize); cy?.dest
 .irg-pop-h:first-child { margin-top: 0; }
 .irg-pop-types { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .irg-arrow-note { font-weight: 600; }
+.irg-dot--blocker { background: transparent; box-shadow: inset 0 0 0 2.5px #d03050; }
 /* 明細欄：在圖旁邊，不蓋住圖；分區、標題、計數，名稱完整換行 */
 .irg-side { width: 340px; flex: none; height: 100%; overflow: auto; box-sizing: border-box; padding: 12px 14px 72px;
   border: 1px solid var(--n-border-color, rgba(128, 128, 128, .25)); border-radius: 10px; font-size: 13px; }

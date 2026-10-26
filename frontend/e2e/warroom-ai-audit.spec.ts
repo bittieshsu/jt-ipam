@@ -181,7 +181,7 @@ test("右側焦點每 10 秒換一筆；整個戰情室暫停時停住", async (
   await page.clock.fastForward(10_500);
   await expect(focus).toHaveAttribute("data-id", "f-1");
   await expect(items.nth(1)).toHaveAttribute("data-focus", "1");
-  await expect(page.getByTestId("wr-ai-focus-pos")).toContainText("2／3");
+  await expect(page.getByTestId("wr-ai-focus-pos")).toContainText("2 / 3");
   // 暫停：再過 25 秒也不換
   await page.keyboard.press(" ");
   await expect(page.locator(".wr-paused")).toBeVisible();

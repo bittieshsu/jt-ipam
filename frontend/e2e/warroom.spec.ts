@@ -51,7 +51,7 @@ for (const lang of ["zh-TW", "en-US", "ja-JP"]) {
     const titles = new Set<string>();
     for (let i = 1; i <= TOPICS.length; i++) {
       await page.keyboard.press(String(i));
-      await expect(page.locator(".wr-nav__i.on")).toContainText(String(i).padStart(2, "0"));
+      await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", String(i));
       await page.waitForTimeout(400);
       titles.add(await page.locator(".wr-title h1").innerText());
       expect(await overflowing(page), `主題 ${i}`).toEqual([]);
@@ -59,10 +59,26 @@ for (const lang of ["zh-TW", "en-US", "ja-JP"]) {
       const lines = await page.evaluate(() => {
         const count = (e: Element) => { const r = document.createRange(); r.selectNodeContents(e);
           return new Set([...r.getClientRects()].map((b) => Math.round(b.top))).size; };
+        // 只看文字（圖示的 SVG 路徑不算），同一行字級不同的數字頂端會差幾 px，用垂直中線差超過 16px 才算另一行
+        const textLines = (e: Element) => {
+          const mids: number[] = [];
+          const walk = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+          for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+            if (!n.textContent?.trim()) continue;
+            const r = document.createRange(); r.selectNodeContents(n);
+            for (const b of r.getClientRects()) if (b.width) mids.push((b.top + b.bottom) / 2);
+          }
+          mids.sort((a, b) => a - b);
+          return mids.filter((m, k) => k === 0 || m - mids[k - 1] > 16).length;
+        };
         return { labels: [...document.querySelectorAll(".wr-metric__l")].map((e) => [e.textContent, count(e)] as const),
+                 heads: [...document.querySelectorAll(".wr-main .wr-h2, .wr-main .wr-index")].filter((e) => e.textContent?.trim())
+                   .map((e) => [e.textContent, textLines(e)] as const),
                  title: count(document.querySelector(".wr-title h1")!) };
       });
       for (const [text, n] of lines.labels) expect(n, `主題 ${i}「${text}」`).toBeLessThanOrEqual(2);
+      // 區塊標題與頁碼只能一行：服務主題的「DNS 比對群組」曾被圖例擠成兩行、「01 / 04」也折行（10-25）
+      for (const [text, n] of lines.heads) expect(n, `主題 ${i}「${text}」`).toBe(1);
       expect(lines.title, `主題 ${i} 標題`).toBeLessThanOrEqual(2);
       // 採集頁的整合來源最多兩排，而且不可以蓋到上面的代理卡片（10-22 換行後曾經疊在卡片上）
       const overlap = await page.evaluate(() => {
@@ -91,19 +107,19 @@ test("按鍵：← → 換主題、↑ ↓／PgUp PgDn 在同主題內換資料�
   await page.goto("/warroom");
   await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
   const nav = page.locator(".wr-nav__i.on");
-  await expect(nav).toContainText("01");
+  await expect(nav).toHaveAttribute("data-pos", "1");
   await page.keyboard.press("ArrowRight");
-  await expect(nav).toContainText("02");
+  await expect(nav).toHaveAttribute("data-pos", "2");
   await page.keyboard.press("ArrowLeft");
-  await expect(nav).toContainText("01");
+  await expect(nav).toHaveAttribute("data-pos", "1");
   await page.keyboard.press("ArrowLeft");                       // 從第一個往前繞到最後一個
-  await expect(nav).toContainText("07");
+  await expect(nav).toHaveAttribute("data-pos", "7");
   // 資料頁只在同一個主題內循環：只有一頁時按往下留在原主題（10-22 起不再跳到下一個主題）
   await page.keyboard.press("1");
-  await expect(nav).toContainText("01");
+  await expect(nav).toHaveAttribute("data-pos", "1");
   await page.keyboard.press("PageDown");
   await page.waitForTimeout(400);
-  await expect(nav).toContainText("01");
+  await expect(nav).toHaveAttribute("data-pos", "1");
   // 暫停：頁首標示、進度線消失、畫面閃一下；再按一次恢復也會閃
   await page.keyboard.press(" ");
   await expect(page.getByTestId("wr-flash")).toBeAttached();
@@ -244,18 +260,24 @@ test("同主題換資料頁只換分頁的那一區，標題與其他區塊不�
   // 第 1 頁再往上：到同主題的最後一頁（第 3 頁），不換主題；最後一頁往下回第 1 頁
   await page.keyboard.press("PageUp");
   await expect(page.locator(".an-item").first()).toContainText("192.0.2.7");
-  await expect(page.locator(".wr-nav__i.on")).toContainText("05");
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "5");
   await page.keyboard.press("ArrowDown");
   await expect(page.locator(".an-item").first()).toContainText("192.0.2.1");
-  await expect(page.locator(".wr-nav__i.on")).toContainText("05");
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "5");
   expect(await page.locator(".wr-title[data-mark=same]").count()).toBe(1);
   await page.keyboard.press("ArrowRight");                                   // 換主題才整頁換
-  await expect(page.locator(".wr-nav__i.on")).toContainText("06");
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "6");
   await expect(page.locator(".wr-title[data-mark=same]")).toHaveCount(0);
 });
 
 test("按鍵說明：電視與設定頁列的是同一份（含 H、Home、Esc）", async ({ page }) => {
   await pinConfig(page);
+  // 數字鍵的範圍（1–N）照播放清單長度：設定頁也用同一份清單，否則伺服器設定一變就對不上
+  await page.route(/\/api\/v1\/system\/warroom$/, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const cfg = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...cfg, pages: TOPICS } });
+  });
   await login(page);
   await page.goto("/warroom");
   await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
@@ -314,11 +336,11 @@ test("播放清單可以拖拉排序；電視的編號與數字鍵照播放順�
   await page.goto("/warroom");
   await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
   const nav = page.locator(".wr-nav__i");
-  await expect(nav.nth(0)).toContainText("01");
+  await expect(nav.nth(0)).toHaveAttribute("data-pos", "1");      // 頁尾不顯示編號（10-26），位置照播放順序
   await expect(nav.nth(0)).toContainText("採集");
   await page.keyboard.press("3");
   await expect(page.locator(".wr-nav__i.on")).toContainText("異常");
-  await expect(page.locator(".wr-nav__i.on")).toContainText("03");
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "3");
 });
 
 /** 區塊內容有沒有超出自己的框（區塊 overflow:hidden 時 scrollHeight 會大於 clientHeight） */
@@ -386,6 +408,12 @@ test("滿版資料不截斷：三個地點、DNS 來源滿格、判斷線索逐�
   const hint = page.getByTestId("wr-hints").first();
   await expect(hint.locator(".wr-hint")).toHaveCount(3);
   await expect(hint).not.toContainText("·");
+  // 製造商與 MAC 在同一行（綁成一組，10-24）
+  const nic = hint.getByTestId("wr-hint-nic");
+  if (await nic.count()) {
+    const tops = await nic.locator(".wr-hint").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(new Set(tops).size).toBe(1);
+  }
 
   await page.keyboard.press("4");
   await expect(page.getByTestId("wr-dns-source").first()).toBeVisible();
@@ -421,16 +449,16 @@ test("偵測到新版：網站準備好後自動重新載入，接著播原本�
   await page.goto("/warroom");
   await expect(page.locator(".wr-title h1")).toBeVisible();
   await page.keyboard.press("4");                                   // 停在 04 服務
-  await expect(page.locator(".wr-nav__i.on")).toContainText("04");
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "4");
   build = "e2e-B";                                                  // 部署了新版
   const reloaded = page.waitForEvent("load");
   await page.clock.fastForward(181_000);
   await reloaded;
   await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator(".wr-nav__i.on")).toContainText("04");  // 重新載入後接著播 04
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "4");  // 重新載入後接著播 04
 });
 
-test("播放清單排滿 11 個主題：頁尾放不下就只留編號、正在播的寫名稱，不蓋到按鍵提示（10-23）", async ({ page }) => {
+test("播放清單排滿 11 個主題：頁尾只寫名稱不加編號，放不下時沒在播的名稱截短，不蓋到按鍵提示（10-23、10-26）", async ({ page }) => {
   const ALL = [...TOPICS, "stats", "relations", "availability", "ai_audit"];
   let language = "en-US";
   await page.route(/\/api\/v1\/warroom\/config$/, async (route) => {
@@ -443,10 +471,24 @@ test("播放清單排滿 11 個主題：頁尾放不下就只留編號、正在�
     const nav = page.getByTestId("wr-nav");
     await expect(nav.locator(".wr-nav__i")).toHaveCount(11);
     await expect(nav.locator(".wr-nav__i.on")).toContainText(/\S{2,}/);
-    // 換到有分頁的主題：右邊多出「子網路 01–04 / 8」這類文字，主題列可用寬度變小後要重新判斷（中文曾被切成「11 AI 巡」）
+    // 不加編號（10-26 使用者：「主題名稱不需要加編號 01 02」）
+    expect(await nav.innerText(), language).not.toMatch(/\b\d{2}\b/);
+    // 按鍵提示在最右邊，頁碼與上下頁在它左邊（10-24）
+    const order = await page.evaluate(() => [...document.querySelector(".wr-sub")!.children]
+      .filter((e) => getComputedStyle(e).display !== "none").map((e) => (e as HTMLElement).dataset.testid || e.className));
+    expect(order[order.length - 1], language).toBe("wr-keyhint");
+    // 換主題時主題列的字級與寬度不變（10-24：總覽與容量之間會一下大一下小）
+    const sizeOf = () => nav.evaluate((n) => ({
+      font: getComputedStyle(n.querySelector(".wr-nav__i")!).fontSize, width: Math.round(n.getBoundingClientRect().width),
+      cls: n.className }));
+    const before = await sizeOf();
     await page.keyboard.press("8");
-    await expect(nav.locator(".wr-nav__i.on")).toContainText("08");
+    await expect(nav.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "8");
     await page.waitForTimeout(600);
+    expect(await sizeOf(), language).toEqual(before);
+    await page.keyboard.press("1");
+    await page.waitForTimeout(600);
+    expect(await sizeOf(), language).toEqual(before);
     const box = await page.evaluate(() => {
       const n = document.querySelector("[data-testid=wr-nav]") as HTMLElement;
       const s = document.querySelector(".wr-sub") as HTMLElement;
@@ -477,3 +519,78 @@ async function pinConfigPages(page: Page, pages: string[]) {
     await route.fulfill({ json: { ...cfg, pages, language: "en-US", reduce_motion: true } });
   });
 }
+
+test("大數字字體：每一種預選字體在數字最多的主題都不溢出；沒設定時是 Exo 2（10-24）", async ({ page }) => {
+  test.setTimeout(240_000);
+  let font = "inter";
+  await page.route(/\/api\/v1\/warroom\/config$/, async (route) => {
+    const cfg = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...cfg, pages: ["overview", "capacity", "services", "assets", "collection"], language: "en-US",
+                                  reduce_motion: true, number_font: font } });
+  });
+  await login(page);
+  const FAMILY: Record<string, string> = { inter: "WR Inter", orbitron: "WR Orbitron", exo2: "WR Exo 2", rajdhani: "WR Rajdhani",
+                                           "share-tech-mono": "WR Share Tech Mono", audiowide: "WR Audiowide" };
+  for (font of Object.keys(FAMILY)) {
+    await page.goto("/warroom");
+    await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
+    for (const k of ["1", "2", "3", "4", "5"]) {
+      await page.keyboard.press(k);
+      await page.waitForTimeout(700);
+      expect(await overflowing(page), `${font} topic ${k}`).toEqual([]);
+      // 頁面下方的大數字（.wr-big：統計、服務、資產…）也要換字體，不只頁首的指標（10-24）
+      const bigs = await page.locator(".wr-main .wr-big").evaluateAll((els) => els.map((e) => getComputedStyle(e).fontFamily));
+      for (const f of bigs) expect(f.replace(/"/g, ""), `${font} topic ${k} .wr-big`).toMatch(new RegExp(`^${FAMILY[font]}`));
+    }
+    const fam = await page.locator(".wr-metric__v").first().evaluate((e) => getComputedStyle(e).fontFamily);
+    expect(fam.replace(/"/g, ""), font).toMatch(new RegExp(`^${FAMILY[font]}`));
+  }
+});
+
+test("換頁過場：用設定選的效果（10-24）", async ({ page }) => {
+  await page.route(/\/api\/v1\/warroom\/config$/, async (route) => {
+    const cfg = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...cfg, pages: TOPICS, language: "zh-TW", reduce_motion: false, transition: "zoom" } });
+  });
+  await login(page);
+  await page.goto("/warroom");
+  await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
+  const seen = page.waitForFunction(() => !!document.querySelector('[class*="wr-zoom-fwd-enter"]'), null, { timeout: 5000 });
+  await page.keyboard.press("ArrowRight");
+  await seen;
+});
+
+test("大數字字體預設 Exo 2（10-24 使用者指定）", async ({ page }) => {
+  await page.route(/\/api\/v1\/warroom\/config$/, async (route) => {
+    const cfg = await (await route.fetch()).json();
+    delete cfg.number_font;            // 舊版後端沒有這個欄位時，前端也要預設 Exo 2
+    await route.fulfill({ json: { ...cfg, pages: TOPICS, reduce_motion: true } });
+  });
+  await login(page);
+  await page.goto("/warroom");
+  await expect(page.locator(".wr-metric__v").first()).toBeVisible({ timeout: 20_000 });
+  await expect.poll(() => page.locator(".wr-metric__v").first().evaluate((e) => getComputedStyle(e).fontFamily))
+    .toMatch(/^"?WR Exo 2/);
+});
+
+test("P 釘選目前主題：到時間不換主題、資料頁照常換，再按一次恢復輪主題（10-26 使用者）", async ({ page }) => {
+  await page.route(/\/api\/v1\/warroom\/config$/, async (route) => {
+    const cfg = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...cfg, pages: TOPICS, language: "zh-TW", reduce_motion: true, dwell_seconds: 5 } });
+  });
+  await login(page);
+  await page.goto("/warroom");
+  await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
+  await page.keyboard.press("4");
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "4");
+  const multi = await page.locator(".wr-sub__label").count() > 0;
+  const before = multi ? await page.locator(".wr-sub__label").innerText() : "";
+  await page.keyboard.press("p");
+  await expect(page.getByTestId("wr-pinned")).toBeVisible();
+  await page.waitForTimeout(6500);
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "4");          // 沒換主題
+  if (multi) await expect(page.locator(".wr-sub__label")).not.toHaveText(before);   // 資料頁照常換
+  await page.keyboard.press("P");
+  await expect(page.getByTestId("wr-pinned")).toHaveCount(0);
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", "5", { timeout: 15_000 });   // 恢復輪主題（可能先把資料頁播完）
+});

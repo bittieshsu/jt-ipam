@@ -222,6 +222,11 @@ async def review(session: AsyncSession, user: Any, plan: ChangePlan, *, decision
                             "The analysis is incomplete; use accept risk with a reason", status=409)
         if decision == "accept_risk" and len((rationale or "").strip()) < 5:
             raise PlanError("impact_rationale_required", "A reason is required to accept the risk")
+        from app.services.change_impact.access import review_items_hidden, viewer
+        if await review_items_hidden(session, run, await viewer(session, user)):
+            raise PlanError("impact_review_items_hidden",
+                            "Some items that need review are outside what you can see; someone who can see them "
+                            "(for example an admin) has to approve", status=403)
         review_ids = [str(i) for i in (await session.execute(select(ImpactFinding.id).where(
             ImpactFinding.run_id == run.id, ImpactFinding.disposition == "review"))).scalars().all()]
         missing = [i for i in review_ids if not str((dispositions.get(i) or {}).get("action") or "").strip()]
@@ -257,17 +262,31 @@ async def review(session: AsyncSession, user: Any, plan: ChangePlan, *, decision
 
 # ─────────────────── 待辦 ───────────────────
 
+#: 關於「新位址」本身的規則（改址目標的衝突與跨子網路確認），不是舊位址的引用
+NEW_IP_RULES = frozenset({"ipam.new_ip_assigned", "ipam.new_ip_reserved", "ipam.new_ip_overlap_record",
+                          "ipam.new_ip_cooldown", "ipam.new_ip_requested", "ipam.new_ip_in_range",
+                          "dhcp.new_ip_reserved", "dhcp.new_ip_leased", "dhcp.new_ip_leased_until",
+                          "dhcp.new_ip_in_pool", "dhcp.new_ip_reserved_same_mac", "activity.new_ip_seen",
+                          "network.cross_subnet"})
+
+
 def _template_tasks(scenario_type: str, findings: list[ImpactFinding], params: dict[str, Any],
                     target_label: str) -> list[tuple[str, str, dict[str, Any], list[str]]]:
     """(phase, template_code, template_params, finding_ids)。文字由前端依語系翻譯。"""
     by_cat: dict[str, list[ImpactFinding]] = {}
+    new_ip_issues: list[ImpactFinding] = []
     for f in findings:
+        # 新位址的衝突（有人在用、有申請、已配發…）是改址前要先解決的事，不是要去改的引用（2026-10-25 實測：
+        # 曾經生出「更新活動的引用」「更新 IPAM 的引用」）—— 掛在「確認新位址」底下
+        if scenario_type == "ip_renumber" and f.rule_id in NEW_IP_RULES:
+            new_ip_issues.append(f)
+            continue
         if f.impact in ("change_required", "potential_disruption") and f.disposition != "informational":
             by_cat.setdefault(f.category, []).append(f)
     out: list[tuple[str, str, dict[str, Any], list[str]]] = []
     if scenario_type == "ip_renumber":
         old, new = target_label, params.get("new_ip") or ""
-        out += [("precheck", "confirm_new_ip", {"new_ip": new}, []),
+        out += [("precheck", "confirm_new_ip", {"new_ip": new}, [str(f.id) for f in new_ip_issues]),
                 ("precheck", "confirm_scope_window", {}, []),
                 ("precheck", "prepare_rollback", {"old_ip": old}, []),
                 ("change", "update_device_address", {"old_ip": old, "new_ip": new}, [])]

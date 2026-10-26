@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request
@@ -104,9 +105,28 @@ def _bearer(request: Request) -> str | None:
     return parts[1].strip()
 
 
+async def resolve_section(session: AsyncSession, ident: object):  # type: ignore[no-untyped-def]
+    """區段可用 UUID、數字相容 ID（0230）或名稱指定。
+
+    Proxmox VE SDN 的 phpIPAM 外掛只收整數區段 ID；既有用 UUID 的用戶端照常可用。
+    """
+    from app.models.section import Section
+
+    text = str(ident).strip()
+    try:
+        return await session.get(Section, uuid.UUID(text))
+    except ValueError:
+        pass
+    if text.isdigit():
+        return (await session.execute(select(Section).where(Section.compat_id == int(text)))).scalar_one_or_none()
+    return (await session.execute(select(Section).where(Section.name == text))).scalar_one_or_none()
+
+
 def section_to_phpipam(s) -> dict[str, Any]:  # type: ignore[no-untyped-def]
     return {
         "id": str(s.id),
+        # 數字的相容 ID：sections/{id} 與建立子網路的 sectionId 都可以用它（PVE SDN 只收整數）
+        "compatId": s.compat_id,
         "name": s.name,
         "description": s.description,
         "masterSection": str(s.parent_id) if s.parent_id else "0",
@@ -158,12 +178,14 @@ def subnet_to_phpipam(s) -> dict[str, Any]:  # type: ignore[no-untyped-def]
     }
 
 
-def address_to_phpipam(a) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+def address_to_phpipam(a, gateway: object = None) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+    """`gateway`＝所屬子網路的閘道（有給才判斷 is_gateway；PVE SDN 加閘道 IP 失敗時會看這個欄位）。"""
+    ip = str(a.ip).split("/")[0]
     return {
         "id": str(a.id),
         "subnetId": str(a.subnet_id),
-        "ip": str(a.ip).split("/")[0],
-        "is_gateway": "0",
+        "ip": ip,
+        "is_gateway": "1" if gateway is not None and str(gateway).split("/")[0] == ip else "0",
         "description": a.description,
         "hostname": a.hostname,
         "mac": str(a.mac) if a.mac else None,

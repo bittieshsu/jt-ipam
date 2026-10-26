@@ -98,7 +98,7 @@ async function openRelations(page: Page) {
   await page.goto("/warroom");
   await expect(page.locator(".wr-title h1")).toBeVisible({ timeout: 20_000 });
   await page.keyboard.press(RELATIONS_KEY);
-  await expect(page.locator(".wr-nav__i.on")).toContainText(RELATIONS_KEY.padStart(2, "0"));
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", String(Number(RELATIONS_KEY)));
 }
 
 for (const lang of ["zh-TW", "en-US", "ja-JP"]) {

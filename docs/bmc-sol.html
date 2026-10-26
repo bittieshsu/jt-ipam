@@ -143,6 +143,7 @@
     table.t.vals td:nth-child(2){white-space:normal}table.t.sym td:first-child{width:auto}}
   footer{margin:30px 0 80px;font-size:12.5px;color:var(--muted);text-align:center}
   footer a{color:var(--green)}
+  a.more{color:var(--green);font-weight:600;white-space:nowrap}
 </style>
 <noscript><style>.en{display:initial}</style></noscript>
 </head>
@@ -226,6 +227,7 @@
     <span class="zh"><strong>只想馬上能登入？</strong> 跳到 <a href="#os">作業系統設定</a> 的步驟 2：啟用 serial-getty 即可，免重新開機。<strong>要看 POST / BIOS 選單</strong>才需要下面的 BIOS 設定。</span>
     <span class="en"><strong>Just want a login prompt?</strong> Jump to step 2 of <a href="#os">the OS setup</a>: enabling serial-getty is enough and needs no reboot. The BIOS settings below are only needed to see POST and the BIOS menu.</span><span class="ja"><strong>とりあえずログインできれば良い場合</strong>は <a href="#os">OS 側の設定</a>の手順 2 へ。serial-getty を有効にするだけで足り、再起動も不要です。下の BIOS 設定は、POST や BIOS メニューを見たい場合にだけ必要です。</span>
   </div>
+  <p class="sub"><span class="zh">完整的實機設定過程見 <a class="more" href="https://blog.jason.tools/2026/07/bmc-sol-console-redirection.html" target="_blank" rel="noopener">部落格介紹 →</a></span><span class="en">The full walkthrough on real hardware is in <a class="more" href="https://blog.jason.tools/2026/07/bmc-sol-console-redirection.html" target="_blank" rel="noopener">Blog post (Chinese) →</a></span><span class="ja">実機での設定手順は <a class="more" href="https://blog.jason.tools/2026/07/bmc-sol-console-redirection.html" target="_blank" rel="noopener">ブログ記事（中国語）→</a></span></p>
 
   <!-- ─────────────── BIOS ─────────────── -->
   <h2 id="bios"><span class="zh">一、BIOS：Console Redirection</span><span class="en">1. BIOS: console redirection</span><span class="ja">1. BIOS：コンソールリダイレクション</span></h2>

@@ -79,15 +79,20 @@
 | `GET /addresses/{ip}/{subnetId}/` | by IP + subnet |
 | `GET /addresses/search/{ip}/` | 全域搜尋 |
 | `GET /addresses/search_hostname/{hostname}/` | by hostname |
+| `GET /addresses/search_mac/{mac}/` | 依 MAC 查（任何寫法） |
 | `GET /addresses/first_free/{subnetId}/` | 第一空閒 |
 | `GET /addresses/custom_fields/` | 自訂欄位定義 |
 | `GET /addresses/tags/` | 狀態標籤 |
 | `GET /addresses/tags/{id}/addresses/` | 某狀態的所有 IP |
 | `POST /addresses/` | 建立 |
 | `POST /addresses/first_free/` | 配發第一個空閒 |
+| `POST /addresses/first_free/{subnetId}/` | 佔用下一個空位，回 IP 字串（Proxmox VE SDN） |
 | `PATCH /addresses/{id}/` | 更新 |
 | `DELETE /addresses/{id}/` | 刪除 |
 | `DELETE /addresses/{ip}/{subnetId}/` | by IP+subnet 刪除 |
+
+> **Proxmox VE SDN（phpIPAM 外掛）**：路徑結尾斜線可有可無、不會轉址；區段可用 UUID、名稱或數字相容 ID（`compatId`，區段頁看得到）指定，因為 PVE 的區段只收整數。POST／PATCH addresses 帶 `is_gateway: 1` 會設成子網路閘道。2026-10-24 照外掛的實際呼叫驗過。
+
 
 **對應內部模型**：`IPAddress`。注意 phpIPAM 把「狀態」叫 tag。
 

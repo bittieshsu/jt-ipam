@@ -93,8 +93,9 @@ export async function sendTestChannel(channel: string): Promise<void> {
 }
 
 // ── 通知矩陣：哪些事件走哪些管道（站內 / Email）──
-export type NotifyMatrix = Record<string, { in_app: boolean; email: boolean }>;
-export interface NotifyMatrixResp { matrix: NotifyMatrix; events: string[]; }
+/** 每列：in_app、email，加上各通訊軟體（telegram／slack／teams／nextcloud／zulip／webhook；沒存過的跟 in_app 一樣） */
+export type NotifyMatrix = Record<string, { in_app: boolean; email: boolean; [channel: string]: boolean }>;
+export interface NotifyMatrixResp { matrix: NotifyMatrix; events: string[]; channels?: string[] }
 
 export async function getNotificationMatrix(): Promise<NotifyMatrixResp> {
   const { data } = await apiClient.get<NotifyMatrixResp>("/api/v1/system/notification-matrix");

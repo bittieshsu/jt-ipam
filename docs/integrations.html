@@ -506,6 +506,8 @@
   .ig-grid ul{margin:0;padding-left:20px}
   .ig-grid li{margin:2px 0}
   .ig-where{margin:12px 0 0;font-size:13px;color:var(--muted)}
+  .ig-gread{margin:-4px 0 14px;font-size:14px;color:var(--muted)}
+  a.more{color:var(--green);font-weight:600;white-space:nowrap}
   .igtoc{display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:6px 16px;background:var(--card);border:1px solid var(--line);
     border-radius:14px;padding:16px 20px;margin:18px 0}
   .igtoc .k{font-weight:600;color:var(--ink);font-size:14px;padding-top:3px}
@@ -790,6 +792,7 @@
 
   <section class="igroup" id="sources-dns">
     <h2><span class="zh">DNS</span><span class="en">DNS</span><span class="ja">DNS</span></h2>
+    <p class="ig-gread"><span class="zh">DNS 比對群組（多台 DNS 一致性檢查）：<a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-dns-compare.html" target="_blank" rel="noopener">部落格介紹 →</a></span><span class="en">DNS comparison groups (consistency across DNS servers): <a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-dns-compare.html" target="_blank" rel="noopener">Blog post (Chinese) →</a></span><span class="ja">DNS 比較グループ（複数 DNS の整合性チェック）：<a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-dns-compare.html" target="_blank" rel="noopener">ブログ記事（中国語）→</a></span></p>
     <article class="ig" id="ig-powerdns">
   <div class="ig-h"><h3>PowerDNS</h3><span class="ig-tags"><span class="tag ro"><span class="zh">唯讀</span><span class="en">Read only</span><span class="ja">読み取りのみ</span></span><span class="tag">HTTP API</span></span></div>
   <p class="ig-lead"><span class="zh">讀取 PowerDNS Authoritative 的 HTTP API，把每個 zone 的正解與反解紀錄拉回 IPAM 對照。</span><span class="en">Reads the PowerDNS Authoritative HTTP API and pulls each zone's forward and reverse records into IPAM.</span><span class="ja">PowerDNS Authoritative の HTTP API から、各ゾーンの正引き・逆引きレコードを IPAM に取り込みます。</span></p>
@@ -1420,6 +1423,7 @@
     </ul></div>
   </div>
   <p class="ig-where"><span class="zh">設定位置：管理 &gt; 外部系統整合 &gt; OCS</span><span class="en">Where: Admin &gt; External integrations &gt; OCS</span><span class="ja">設定場所：管理 &gt; 外部システム連携 &gt; OCS</span></p>
+  <p class="ig-where"><span class="zh">延伸閱讀：<a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-ocs.html" target="_blank" rel="noopener">部落格介紹 →</a></span><span class="en">Further reading: <a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-ocs.html" target="_blank" rel="noopener">Blog post (Chinese) →</a></span><span class="ja">関連記事：<a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-ocs.html" target="_blank" rel="noopener">ブログ記事（中国語）→</a></span></p>
 </article>
 <article class="ig" id="ig-rustdesk">
   <div class="ig-h"><h3>RustDesk Server OSS</h3><span class="ig-tags"><span class="tag ro"><span class="zh">預設唯讀</span><span class="en">Read only by default</span><span class="ja">既定は読み取りのみ</span></span> <span class="tag"><span class="zh">專用代理</span><span class="en">Dedicated agent</span><span class="ja">専用エージェント</span></span></span></div>
@@ -1453,6 +1457,7 @@
     </ul></div>
   </div>
   <p class="ig-where"><span class="zh">設定位置：管理 &gt; 外部系統整合 &gt; RustDesk</span><span class="en">Where: Admin &gt; External integrations &gt; RustDesk</span><span class="ja">設定場所：管理 &gt; 外部システム連携 &gt; RustDesk</span></p>
+  <p class="ig-where"><span class="zh">延伸閱讀：<a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-rustdesk.html" target="_blank" rel="noopener">部落格介紹 →</a></span><span class="en">Further reading: <a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-rustdesk.html" target="_blank" rel="noopener">Blog post (Chinese) →</a></span><span class="ja">関連記事：<a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-rustdesk.html" target="_blank" rel="noopener">ブログ記事（中国語）→</a></span></p>
 </article>
   </section>
 
@@ -1594,6 +1599,7 @@
     </ul></div>
   </div>
   <p class="ig-where"><span class="zh">設定位置：管理 &gt; Recog 指紋庫</span><span class="en">Where: Admin &gt; Recog fingerprints</span><span class="ja">設定場所：管理 &gt; Recog フィンガープリント</span></p>
+  <p class="ig-where"><span class="zh">延伸閱讀：<a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-probe.html" target="_blank" rel="noopener">部落格介紹 →</a></span><span class="en">Further reading: <a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-probe.html" target="_blank" rel="noopener">Blog post (Chinese) →</a></span><span class="ja">関連記事：<a class="more" href="https://blog.jason.tools/2026/10/jt-ipam-probe.html" target="_blank" rel="noopener">ブログ記事（中国語）→</a></span></p>
 </article>
   </section>
 
@@ -1625,7 +1631,7 @@
       <li><span class="zh">使用者、群組權限與自訂欄位不會搬過來</span><span class="en">Users, group permissions and custom fields are not migrated</span><span class="ja">ユーザー、グループ権限、カスタムフィールドは移行されません</span></li>
       <li><span class="zh">不會自動排程同步，每次都要手動執行；正式執行在背景作業中進行</span><span class="en">There is no scheduled sync; each run is started by hand, and the real run executes as a background job</span><span class="ja">自動の定期同期はなく、毎回手動で実行します。本実行はバックグラウンドジョブとして動きます</span></li>
       <li><span class="zh">相容 API 目前只涵蓋 user、sections、subnets、addresses；VLAN、VRF、裝置等尚未提供</span><span class="en">The compatible API covers user, sections, subnets and addresses only; VLANs, VRFs, devices and others are not available yet</span><span class="ja">互換 API が対応するのは現在 user、sections、subnets、addresses のみで、VLAN、VRF、機器などは未提供です</span></li>
-      <li><span class="zh">部分外掛會用到的端點（例如 addresses 的 search_mac、POST first_free）尚未支援，接 Proxmox VE SDN 等整合前請先確認</span><span class="en">Some endpoints that plugins use (such as addresses search_mac and POST first_free) are not supported yet; check before connecting integrations such as Proxmox VE SDN</span><span class="ja">プラグインが使う一部のエンドポイント（addresses の search_mac、POST first_free など）は未対応です。Proxmox VE SDN などと接続する前に確認してください</span></li>
+      <li><span class="zh">Proxmox VE SDN 的 phpIPAM 外掛可以直接接：網址填 /api/phpipam/pve，「區段」填區段頁的「phpIPAM 相容 ID」；建子網路、加閘道、幫 VM 配位址、更新與刪除都照外掛的實際呼叫驗過</span><span class="en">The Proxmox VE SDN phpIPAM plugin connects directly: set the URL to /api/phpipam/pve and Section to the "phpIPAM compatible ID" from the section page; creating subnets, adding the gateway, allocating VM addresses, updates and deletes are verified against the plugin's actual calls</span><span class="ja">Proxmox VE SDN の phpIPAM プラグインはそのまま接続できます。URL に /api/phpipam/pve、セクションにセクションページの「phpIPAM 互換 ID」を入力します。サブネットの作成、ゲートウェイの追加、VM へのアドレス割り当て、更新と削除をプラグインの実際の呼び出しどおりに検証済みです</span></li>
       <li><span class="zh">權限與 jt-ipam 的 REST API 相同；唯讀權杖不能用會改資料的方法</span><span class="en">Permissions are the same as jt-ipam's REST API; read-only tokens cannot use methods that change data</span><span class="ja">権限は jt-ipam の REST API と同じで、読み取り専用トークンではデータを変更するメソッドを使えません</span></li>
     </ul></div>
   </div>
@@ -1722,7 +1728,7 @@
       <li><span class="zh">選外部服務時，網段、主機名稱與拓樸會送出去；要求資料不出網請用自架伺服器</span><span class="en">With an external service, subnets, hostnames and topology leave your network; keep a self-hosted server if data must stay in-house</span><span class="ja">外部サービスではサブネット、ホスト名、トポロジーが外部に送られます。データを外に出せない場合は自前のサーバーを使います</span></li>
       <li><span class="zh">上下文長度（num_ctx）太小時資料會被截斷，對話、巡檢、判讀可各自調整</span><span class="en">If the context length (num_ctx) is too small, data gets cut off; chat, review and interpretation can each be tuned</span><span class="ja">コンテキスト長（num_ctx）が小さいとデータが切り捨てられます。対話、点検、判読で個別に調整可能</span></li>
       <li><span class="zh">AI 巡檢與 AI 判讀一律關閉思考；頁面有「思考檢查」確認模型有沒有照做</span><span class="en">AI review and interpretation always turn thinking off; a "thinking check" on the page shows whether the model obeys</span><span class="ja">AI 点検と AI 判読は常に思考を無効化。画面の「思考チェック」でモデルが従っているか確認できます</span></li>
-      <li><span class="zh">AI 對話會保存歷程，管理員可在「管理 &gt; AI 對話歷程」檢視</span><span class="en">AI chats are kept; admins can review them under Admin &gt; AI chat history</span><span class="ja">AI 対話は履歴として保存され、管理者は「管理 &gt; AI 対話履歴」で確認できます</span></li>
+      <li><span class="zh">AI 對話會儲存歷程，管理員可在「管理 &gt; AI 對話歷程」檢視</span><span class="en">AI chats are kept; admins can review them under Admin &gt; AI chat history</span><span class="ja">AI 対話は履歴として保存され、管理者は「管理 &gt; AI 対話履歴」で確認できます</span></li>
     </ul></div>
   </div>
   <p class="ig-where"><span class="zh">設定位置：管理 &gt; LLM / AI（巡檢結果在「管理 &gt; AI 巡檢」）</span><span class="en">Where: Admin &gt; LLM / AI (review results under Admin &gt; AI review)</span><span class="ja">設定場所：管理 &gt; LLM / AI（点検結果は「管理 &gt; AI 点検」）</span></p>

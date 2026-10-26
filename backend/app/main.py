@@ -30,7 +30,7 @@ from app.core.middleware import (
 
 
 class _MCPTrailingSlash:
-    """把完全等於 /api/mcp、/mcp 的請求路徑補上斜線（純 ASGI，不動其他路徑）。"""
+    """把完全等於 /api/mcp、/mcp，以及 /api/phpipam/ 底下沒帶結尾斜線的請求路徑補上斜線（純 ASGI）。"""
 
     _PATHS = frozenset({"/api/mcp", "/mcp"})
 
@@ -38,9 +38,13 @@ class _MCPTrailingSlash:
         self.app = app
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        if scope.get("type") == "http" and scope.get("path") in self._PATHS:
+        path = scope.get("path") or ""
+        # phpIPAM 相容 API 也補：phpIPAM 本身兩種寫法都接，我們的路由都帶斜線，不補就回 307；
+        # Proxmox VE SDN 外掛（LWP）對 PATCH／DELETE 不跟轉址，刪除與更新就直接失敗（10-24）
+        if scope.get("type") == "http" and (
+                path in self._PATHS or (path.startswith("/api/phpipam/") and not path.endswith("/"))):
             scope = dict(scope)
-            scope["path"] = scope["path"] + "/"
+            scope["path"] = path + "/"
             if scope.get("raw_path"):
                 scope["raw_path"] = bytes(scope["raw_path"]) + b"/"
         await self.app(scope, receive, send)
@@ -168,7 +172,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             log.info("impact_runs_relaunched", count=n)
     except Exception as exc:
         log.warning("impact_run_reclaim_failed", error=str(exc))
+    # 戰情室 12 AI 情報：每分鐘看一次哪些播報流到期（有人在看、或管理員打開背景產生）。
+    # 每個 worker 都跑，但產生靠資料庫租約，同一個範圍只會有一個去問模型
+    import asyncio
+
+    async def _intel_loop() -> None:
+        from app.services.warroom import intel
+        while True:
+            await asyncio.sleep(60)
+            try:
+                await intel.background_tick()
+            except Exception as exc:                  # 排程迴圈不可以因為一次錯誤就停掉
+                log.warning("warroom_intel_tick_failed", error=exc.__class__.__name__)
+    intel_task = asyncio.create_task(_intel_loop())
     yield
+    intel_task.cancel()
     log.info("shutdown")
 
 

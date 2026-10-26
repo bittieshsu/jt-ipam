@@ -352,7 +352,8 @@ const scheduleText = computed(() => {
 .aa-f__host { font-size: 19px; color: var(--wr-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .aa-f__ipline .aa-more, .aa-f__name .aa-more { font-size: 19px; color: var(--wr-muted); margin-left: 14px; flex: none; }
 .aa-f__name { font-size: 21px; }
-.aa-f__k { font-size: 20px; font-weight: 700; color: var(--wr-ink); }
+/* 小標題（可核對的記錄、AI 判讀、建議確認事項）：跟左欄的欄位標籤同一套（小、灰、字距寬），和內文分得開（10-24） */
+.aa-f__k { font-size: 17px; font-weight: 600; color: var(--wr-muted); letter-spacing: .06em; }
 .aa-facts { width: 100%; border-collapse: collapse; font-size: 20px; table-layout: fixed; }
 .aa-facts th { font-weight: 400; color: var(--wr-muted); font-size: 17px; text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--wr-deep-line); }
 .aa-facts th:first-child { width: 150px; }   /* 跨日時是「10/23 23:22」，120px 會截掉 */
@@ -365,7 +366,7 @@ const scheduleText = computed(() => {
 .aa-f__block { border-top: 1px solid var(--wr-line); padding-top: 10px; }
 .aa-f__p { margin: 4px 0 0; font-size: 21px; line-height: 1.38; color: var(--wr-ink); }
 .aa-clamp3 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
-.aa-f__model { font-weight: 400; font-size: 18px; color: var(--wr-muted); margin-left: 14px; }
+.aa-f__model { font-weight: 400; font-size: 16px; color: var(--wr-muted); margin-left: 14px; letter-spacing: 0; opacity: .8; }
 .aa-fade-enter-active { transition: opacity .35s ease-out; }
 .aa-fade-leave-active { transition: opacity .18s ease-in; }
 .aa-fade-enter-from, .aa-fade-leave-to { opacity: 0; }

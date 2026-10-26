@@ -26,7 +26,7 @@ test("設定排除 DHCP 範圍與異動類型 → 圖例旁標出已排除", asy
     await page.getByTestId("trend-settings-open").click();
     await expect(page.getByTestId("trend-settings")).toBeVisible();
     await page.getByTestId("trend-exclude-dhcp").click();
-    await page.getByTestId("trend-event-groups").getByText("上線／離線").click();
+    await page.getByTestId("trend-event-groups").getByText("上線 / 離線").click();
     const saved = page.waitForRequest((r) => r.method() === "PATCH" && r.url().endsWith("/api/v1/me/preferences"));
     await page.getByTestId("trend-save").click();
     const body = (await saved).postDataJSON();

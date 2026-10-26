@@ -59,10 +59,11 @@ _COLORS: dict[str, str] = {
 }
 _DEFAULT_COLOR = "rgba(107, 114, 128, 0.7)"
 #: 「其他」與沒分類的：灰底加斜紋（跟畫面一樣），伺服器是鋼藍（10-23 客戶：整櫃灰灰的分不出來）
-_OTHER_PATTERN = ('<pattern id="rd-other" width="11" height="11" patternUnits="userSpaceOnUse" '
+#: 細線、間距寬、對比低（10-24 客戶：2～4U 的大面積密紋看了眼花）
+_OTHER_PATTERN = ('<pattern id="rd-other" width="14" height="14" patternUnits="userSpaceOnUse" '
                   'patternTransform="rotate(45)">'
-                  f'<rect width="11" height="11" fill="{_DEFAULT_COLOR}"/>'
-                  '<rect width="5" height="11" fill="rgba(255,255,255,0.22)"/></pattern>')
+                  f'<rect width="14" height="14" fill="{_DEFAULT_COLOR}"/>'
+                  '<rect width="2" height="14" fill="rgba(255,255,255,0.13)"/></pattern>')
 
 #: 各型態各顏色的配色。**與前端 `utils/rackFinish.ts` 的 FINISH_COLORS 相同**
 #: （tests/test_rack_more_kinds.py 會比對兩邊），否則畫面與嵌入圖的顏色會不一樣。

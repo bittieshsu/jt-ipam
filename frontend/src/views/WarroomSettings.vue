@@ -3,14 +3,15 @@
  * 管理 → 戰情室設定（2026-10-21）：播放清單、輪播、分組、門檻、語言、動畫，以及電視用的顯示權杖。
  * 權杖不隨設定回傳：按「顯示」或「複製電視網址」時才向後端取，每次都留稽核（與機櫃嵌入、Graylog DSV 一樣）。
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, h, onMounted, ref, watch } from "vue";
 import { warroomKeyRows } from "@/utils/warroomKeys";
 import { useI18n } from "vue-i18n";
 import {
   NAlert, NButton, NCard, NFormItem, NIcon, NInputNumber, NPopconfirm, NSelect, NSpace, NSwitch,
   NTag, useMessage,
+  type SelectOption,
 } from "naive-ui";
-import { CopyIcon, DeleteIcon, EyeIcon, RefreshIcon, SaveIcon, ScreensIcon } from "@/icons";
+import { AiIcon, CopyIcon, DeleteIcon, EyeIcon, RefreshIcon, SaveIcon, ScreensIcon } from "@/icons";
 import { apiErrMsg } from "@/api/client";
 import { listUsers } from "@/api/admin";
 import {
@@ -18,6 +19,8 @@ import {
   searchWarroomScope, type ScopeKind, type ScopeOption, type WarroomSettings,
 } from "@/api/warroom";
 import { fmtDate } from "@/utils/datetime";
+import { loadNumberFont, NUMBER_FONTS } from "@/views/warroom/warroomFonts";
+import WrsIntelSettings from "@/views/warroom/WrsIntelSettings.vue";
 
 const { t } = useI18n();
 const msg = useMessage();
@@ -30,6 +33,23 @@ const users = ref<{ label: string; value: string }[]>([]);
 
 const keyRows = computed(() => warroomKeyRows(s.value?.pages?.length || 7));
 const windowOpts = computed(() => ["24h", "7d", "30d", "90d"].map((v) => ({ label: t(`warroom_settings.aw_${v}`), value: v })));
+const transOpts = computed(() => ["slide", "fade", "zoom", "rise", "wipe", "flip"]
+  .map((v) => ({ label: t(`warroom_settings.tr_${v}`), value: v })));
+// 字體選單：每個選項用它自己的字體畫一串數字，看得出長什麼樣子（字檔在選到或打開選單時才載）
+const FONT_KEYS = ["inter", "orbitron", "exo2", "rajdhani", "share-tech-mono", "audiowide"];
+const fontReady = ref(0);
+async function preloadFonts() {
+  await Promise.all(FONT_KEYS.map((k) => loadNumberFont(k)));
+  fontReady.value++;
+}
+const fontOpts = computed(() => (void fontReady.value, FONT_KEYS.map((v) => ({ label: t(`warroom_settings.nf_${v}`), value: v }))));
+function renderFontLabel(o: SelectOption) {
+  const f = NUMBER_FONTS[String(o.value)] ?? NUMBER_FONTS.inter;
+  return h("span", { style: "display:inline-flex;align-items:baseline;gap:12px" }, [
+    h("span", { style: `font-family:"${f.family}",sans-serif;font-size:18px;letter-spacing:.02em` }, "1,367 78%"),
+    h("span", { style: "opacity:.7;font-size:12px" }, String(o.label)),
+  ]);
+}
 const groupOpts = computed(() => ["location", "section", "customer"].map((v) => ({ label: t(`warroom_settings.group_${v}`), value: v })));
 const langOpts = computed(() => [
   { label: t("warroom_settings.language_follow"), value: "" },
@@ -226,6 +246,13 @@ onMounted(load);
           <n-form-item :label="t('warroom_settings.availability_window')">
             <n-select v-model:value="s.availability_window" :options="windowOpts" data-testid="wrs-availability-window" />
           </n-form-item>
+          <n-form-item :label="t('warroom_settings.transition')">
+            <n-select v-model:value="s.transition" :options="transOpts" data-testid="wrs-transition" />
+          </n-form-item>
+          <n-form-item :label="t('warroom_settings.number_font')">
+            <n-select v-model:value="s.number_font" :options="fontOpts" :render-label="renderFontLabel"
+                      data-testid="wrs-number-font" @update:show="(v: boolean) => v && preloadFonts()" />
+          </n-form-item>
           <n-form-item :label="t('warroom_settings.language')">
             <n-select v-model:value="s.language" :options="langOpts" />
           </n-form-item>
@@ -258,6 +285,20 @@ onMounted(load);
           <template #icon><n-icon :component="SaveIcon" /></template>{{ t("common.save") }}
         </n-button>
       </template>
+    </n-card>
+
+    <!-- 12 AI 情報：設定做在這裡（使用者：不要另做設計稿的設定頁），跟其他設定一起存 -->
+    <n-card v-if="s?.intel" size="small" class="wrs-card">
+      <template #header>
+        <n-space align="center" :wrap-item="false">
+          <n-icon :size="22"><AiIcon /></n-icon>
+          <span data-testid="wrs-intel-title">{{ t("warroom_settings.intel_title") }}</span>
+        </n-space>
+      </template>
+      <WrsIntelSettings v-model="s.intel" />
+      <n-button type="primary" :loading="saving" data-testid="wrs-intel-save" @click="save">
+        <template #icon><n-icon :component="SaveIcon" /></template>{{ t("common.save") }}
+      </n-button>
     </n-card>
 
     <n-card v-if="s" :title="t('warroom_settings.display_title')" size="small" class="wrs-card">

@@ -82,7 +82,7 @@ ISO27001 = [
        "HTTP 系の連携は接続の時点で宛先を確認し、確認したアドレスに接続して、ローカル・クラウドのメタデータアドレス・DNS リバインディングを防ぎます。リダイレクト時も再確認し、認証情報を別のホストへ持ち込みません。その他のプロトコル（SSH・LDAP・SMTP・RADIUS・WinRM・DNS・syslog 転送）は接続前にすべてのアドレスを解決して確認し、クラウドのメタデータ・リンクローカル・マルチキャストを防ぎます。リモートコンソールの宛先はさらにローカルアドレスも不可です（ガードテストですべての接続が確認を通ることを検査）。"),
      "`test_safe_http_guard.py`, `test_netdiag_http_guard.py`, `test_net_guard.py`"),
     (T("稽核記錄", "Audit trail", "監査ログ"),
-     T("會異動資料的端點都要寫稽核，下載匯出檔與檢視金鑰、權杖也要寫（兩道守門測試逐一檢查，例外要寫明理由）；瀏覽器產生的表格與報告匯出由瀏覽器回報一筆。稽核記錄以雜湊鏈串接，資料庫層拒絕修改、刪除與清空；安裝與升級把稽核表交給不能登入的資料庫角色，應用程式帳號只能讀取與新增，無法停用這些保護。定期驗證並把鏈尾錨定到資料庫以外（檔案與系統日誌）；設定轉送到 Graylog 時，每筆記錄帶著自己與前一筆的雜湊，錨定點也一併送出。這些防修改限制適用於應用程式的資料庫角色：資料庫超級使用者與主機管理者仍可繞過；錨定的檔案與系統日誌也在同一台主機上，不能單獨當作獨立證據，要搭配另行保管的錨定資料與外部的證據保存機制。",
+     T("會異動資料的端點都要寫稽核，下載匯出檔與檢視金鑰、權杖也要寫（兩道守門測試逐一檢查，例外要寫明理由）；瀏覽器產生的表格與報告匯出由瀏覽器回報一筆。稽核記錄以雜湊鏈串接，資料庫層拒絕修改、刪除與清空；安裝與升級把稽核表交給不能登入的資料庫角色，應用程式帳號只能讀取與新增，無法停用這些保護。定期驗證並把鏈尾錨定到資料庫以外（檔案與系統日誌）；設定轉送到 Graylog 時，每筆記錄帶著自己與前一筆的雜湊，錨定點也一併送出。這些防修改限制適用於應用程式的資料庫角色：資料庫超級使用者與主機管理者仍可繞過；錨定的檔案與系統日誌也在同一台主機上，不能單獨當作獨立證據，要搭配另行保管的錨定資料與外部的證據儲存機制。",
        "Every endpoint that changes data must write an audit record, and so must downloads of exports and views of keys and tokens (two guard tests check each one, and exceptions must state a reason); table and report exports generated in the browser are reported by the browser. Audit records form a hash chain and the database rejects updates, deletes and truncation; install and upgrade give the audit table to a database role that cannot sign in, so the app's own database account can only read and append and cannot disable these protections. The chain is verified regularly and its tail anchored outside the database (a file and the system journal); with forwarding to Graylog, every record carries its own hash and the previous one, and the anchors are forwarded too. These tamper protections apply to the application's database roles: a database superuser or the host administrator can still bypass them, and the anchor file and system journal live on the same host, so they are not independent evidence on their own; pair them with anchors kept elsewhere and an external evidence store.",
        "データを変更するエンドポイントは監査への記録が必須で、エクスポートのダウンロードとキーやトークンの表示も同様です（2 つのガードテストで 1 つずつ確認し、例外には理由の記載が必要）。ブラウザで生成する表やレポートのエクスポートはブラウザが報告します。監査ログはハッシュチェーンでつながり、データベースは変更・削除・TRUNCATE を拒否します。インストールとアップグレードで監査テーブルをログインできないデータベースロールに渡すため、アプリのデータベースアカウントは読み取りと追加しかできず、これらの保護を無効にできません。定期的に検証し、チェーンの末尾をデータベースの外（ファイルとシステムジャーナル）にアンカーします。Graylog への転送を設定すると、各レコードが自分と直前のハッシュを持ち、アンカーも一緒に転送されます。これらの改ざん防止はアプリのデータベースロールに適用されるもので、データベースのスーパーユーザーやホストの管理者は回避できます。アンカーのファイルとシステムジャーナルも同じホスト上にあるため単独では独立した証拠にならず、別に保管するアンカーと外部の証拠保存の仕組みを組み合わせる必要があります。"),
      "`test_audit_coverage.py`, `test_audit_read_coverage.py`, `test_audit_immutability.py`, `test_audit_hardening.py`, `test_audit_anchor.py`, `test_audit_chain_order.py`; `scripts/sql/audit-harden.sql`"),
@@ -217,10 +217,10 @@ RESP_27001 = [
     T("整合帳號：每個整合使用專用的最小權限帳號，多數整合只需要唯讀；定期輪替密碼與金鑰；到期通知出現時及時更換權杖。",
       "Integration accounts: give each integration its own least-privilege account (most only need read access); rotate passwords and keys regularly; replace tokens when expiry notices arrive.",
       "連携用アカウント：連携ごとに最小権限の専用アカウントを使い（多くは読み取り専用で十分）、パスワードとキーを定期的にローテーションし、期限の通知が届いたらトークンを交換します。"),
-    T("金鑰與備份：設定備份加密密碼並把密碼保存在 jt-ipam 主機以外；把備份放到異地儲存，定期做還原演練（含解密），並訂出 RPO 與 RTO。",
+    T("金鑰與備份：設定備份加密密碼並把密碼儲存在 jt-ipam 主機以外；把備份放到異地儲存，定期做還原演練（含解密），並訂出 RPO 與 RTO。",
       "Keys and backups: set a backup encryption passphrase and keep it somewhere other than the jt-ipam host; store backups off-site, rehearse restores (including decryption) regularly, and set an RPO and RTO.",
       "鍵とバックアップ：バックアップの暗号化パスフレーズを設定し、jt-ipam のホスト以外に保管します。バックアップを外部に保存し、復号を含む復元訓練を定期的に行い、RPO と RTO を定めます。"),
-    T("稽核證據：把稽核記錄與錨定點轉送到另一台主機的 Graylog 或 SIEM，並在那一端另行設定不可改寫的保存機制（轉送本身不提供這個能力）；限制誰能取得資料庫超級使用者與主機管理權限；定期查看稽核鏈的驗證結果；還原備份或使用外部資料庫時執行 harden-audit。",
+    T("稽核證據：把稽核記錄與錨定點轉送到另一台主機的 Graylog 或 SIEM，並在那一端另行設定不可改寫的儲存機制（轉送本身不提供這個能力）；限制誰能取得資料庫超級使用者與主機管理權限；定期查看稽核鏈的驗證結果；還原備份或使用外部資料庫時執行 harden-audit。",
       "Audit evidence: forward audit records and anchors to Graylog or a SIEM on another host and configure write-once retention there (forwarding alone does not provide it); restrict who holds database superuser and host administrator rights; review chain verification results regularly; run harden-audit after restoring a backup or when using an external database.",
       "監査の証拠：監査ログとアンカーを別のホストの Graylog または SIEM へ転送し、そちら側で書き換え不可の保存の仕組みを別途設定します（転送するだけではこの能力はありません）。データベースのスーパーユーザーとホストの管理者権限を持てる人を制限し、チェーンの検証結果を定期的に確認します。バックアップの復元後や外部データベースを使う場合は harden-audit を実行します。"),
     T("網路：只開放必要的連入埠；把 jt-ipam 放在管理網段；Graylog DSV 盡量走 HTTPS，必須用明文 8088 時限制允許的來源位址。",
@@ -605,8 +605,8 @@ WORKSHEET_NOTE = T("盤點時可以沿用以下欄位，一列一個控制項目
                    "棚卸しでは次の列を使えます。1 行に 1 つの管理策です：")
 
 
-# ─────────────────────────── 資料在哪裡（流向圖＋保存表；使用者 2026-10-20 比照 jt-doc-tools 合規頁畫圖） ───────────────────────────
-# 每一項都對過程式（保存期限的常數、systemd timer、加密方式）；改了預設值這裡要跟著改
+# ─────────────────────────── 資料在哪裡（流向圖＋儲存表；使用者 2026-10-20 比照 jt-doc-tools 合規頁畫圖） ───────────────────────────
+# 每一項都對過程式（保留期限的常數、systemd timer、加密方式）；改了預設值這裡要跟著改
 
 DATA_INTRO = T(
     "IPAM 資料、稽核記錄與整合系統的帳號密碼都存在你自己的伺服器上，不需要任何雲端服務也能完整運作；啟用下圖標成「選用」的項目時，相關資料才會送到管理員設定的服務。",
@@ -620,7 +620,7 @@ FLOW_BROWSER = (T("使用者的瀏覽器", "Users' browsers", "利用者のブ�
 FLOW_MAIN = (T("jt-ipam 伺服器", "jt-ipam server", "jt-ipam サーバー"),
              [T("IPAM 資料與稽核記錄都在自己的 PostgreSQL", "IPAM data and audit records in your own PostgreSQL",
                 "IPAM データと監査記録は自前の PostgreSQL に保存"),
-              T("整合系統的帳號密碼加密保存", "Integration credentials stored encrypted", "連携システムの認証情報は暗号化して保存")])
+              T("整合系統的帳號密碼加密儲存", "Integration credentials stored encrypted", "連携システムの認証情報は暗号化して保存")])
 #: (名稱, 說明, 選用)：內網裡和 jt-ipam 往來的對象
 FLOW_INNER = [
     (T("網路設備與整合系統", "Network devices and integrated systems", "ネットワーク機器と連携システム"),

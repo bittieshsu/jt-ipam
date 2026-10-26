@@ -59,6 +59,13 @@ test("IP 使用率：自動顯示前 4 個 → 自選 2 個 → 改回自動", a
     await expect(card.getByTestId("subnet-usage-gauge")).toHaveCount(2, { timeout: 15_000 });
     await expect(card.getByTestId("subnet-usage-auto")).toHaveCount(0);
     await expect(card.getByTestId("subnet-usage-gauge").nth(1)).toContainText("10.20.0.0/24");
+    // 選不到 4 個：平均撐滿整列，右邊不留空格（10-24）
+    const fill = await card.getByTestId("subnet-usage-gauge").first().evaluate((e) => {
+      const grid = e.parentElement!.getBoundingClientRect();
+      const last = (e.parentElement!.lastElementChild as HTMLElement).getBoundingClientRect();
+      return { gridRight: grid.right, lastRight: last.right };
+    });
+    expect(Math.abs(fill.gridRight - fill.lastRight)).toBeLessThanOrEqual(2);
     await expect(card.locator(".n-card-header")).toContainText("2 / 4");
 
     // 重新整理後還在（存在伺服器端的偏好）

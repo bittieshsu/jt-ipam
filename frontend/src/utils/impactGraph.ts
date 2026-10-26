@@ -24,6 +24,8 @@ const rank = (impact: string | null | undefined) => IMPACT_RANK[impact ?? ""] ??
 export interface GraphNode {
   id: string; label: string; type: string; impact: string | null; category: string | null;
   root: boolean; group: boolean; count: number;
+  /** 有阻擋項目（群組：任一成員有） */
+  blocker: boolean;
 }
 export interface GraphEdge { id: string; from: string; to: string; relation: string; strength: string; propagates: boolean }
 export interface GraphGroup { id: string; category: string | null; type: string; impact: string | null;
@@ -33,7 +35,7 @@ export interface GroupedGraph { nodes: GraphNode[]; edges: GraphEdge[]; groups: 
 
 function asNode(n: RelationNode): GraphNode {
   return { id: n.id, label: n.label, type: n.type, impact: n.impact, category: n.category ?? null, root: n.root,
-           group: false, count: 1 };
+           group: false, count: 1, blocker: !!n.blocker };
 }
 
 export function groupRelationGraph(
@@ -82,7 +84,7 @@ export function groupRelationGraph(
   for (const n of g.nodes) if (!memberOf.has(n.id)) nodes.push(asNode(n));
   for (const grp of Object.values(groups)) {
     nodes.push({ id: grp.id, label: "", type: grp.type, impact: grp.impact, category: grp.category, root: false,
-                 group: true, count: grp.members.length });
+                 group: true, count: grp.members.length, blocker: grp.members.some((m) => m.blocker) });
   }
   const edges: GraphEdge[] = [];
   rawEdges.forEach((e, i) => {
@@ -220,4 +222,22 @@ export function subjectLink(n: { type: string; subject_id?: string | null; kind?
     case "nat_translation": return { name: "nat" };
     default: return null;
   }
+}
+
+/**
+ * 同一對節點之間的多條關係合成一條（2026-10-25 實測：服務「ERP 系統」同時是端點又依賴這個位址，
+ * 兩條線疊在一起、兩段說明文字也疊成亂碼）。關係保留順序、去重複；有一條會傳播停機就算傳播；
+ * 全部都是推定才畫虛線。
+ */
+export function mergeParallelEdges(edges: GraphEdge[]): (GraphEdge & { relations: string[] })[] {
+  const out = new Map<string, GraphEdge & { relations: string[] }>();
+  for (const e of edges) {
+    const k = `${e.from}\u0000${e.to}`;
+    const cur = out.get(k);
+    if (!cur) { out.set(k, { ...e, relations: [e.relation] }); continue; }
+    if (!cur.relations.includes(e.relation)) cur.relations.push(e.relation);
+    cur.propagates = cur.propagates || e.propagates;
+    if (cur.strength === "inferred" && e.strength !== "inferred") cur.strength = e.strength;
+  }
+  return [...out.values()];
 }

@@ -229,7 +229,7 @@ onMounted(() => { void refresh(); void loadSubnetOptions(); });
           </n-button>
         </li>
         <li>{{ t("isc_dhcp.step_read") }} <code>/etc/dhcp/dhcpd.conf</code>、<code>/var/lib/dhcp/dhcpd.leases</code></li>
-        <li>{{ t("isc_dhcp.step_paths") }} <code>JT_IPAM_DHCPD_CONF</code>／<code>JT_IPAM_DHCPD_LEASES</code></li>
+        <li>{{ t("isc_dhcp.step_paths") }} <code>JT_IPAM_DHCPD_CONF</code> / <code>JT_IPAM_DHCPD_LEASES</code></li>
         <li>{{ t("isc_dhcp.step_create") }}</li>
       </ol>
       <div class="isc-note">{{ t("isc_dhcp.privacy") }}</div>

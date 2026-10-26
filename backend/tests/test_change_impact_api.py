@@ -698,3 +698,46 @@ async def test_ai_reply_cut_off_by_the_output_limit_is_retried_shorter(client, a
     art = (await client.get(f"/api/v1/impact-runs/{run_id}/ai-artifacts", headers=auth_headers)).json()["items"][0]
     assert art["status"] == "completed", art
     assert art["validation_state"] == "repaired"
+
+
+async def test_relation_graph_marks_blocking_nodes(client, auth_headers, db_session) -> None:
+    """2026-10-25 實測：阻擋項目在關係圖上跟其他「可能中斷」長得一樣，審核人看圖找不到 —— 節點要帶 blocker。"""
+    await _enable(db_session)
+    _sec, sub, ip = await _setup(db_session)
+    db_session.add(IPAddress(subnet_id=sub.id, ip="198.51.100.80", state="active", hostname="printer"))
+    await db_session.commit()
+    plan = (await _plan(client, auth_headers, ip.id, new_ip="198.51.100.80")).json()
+    r = await client.post(f"/api/v1/change-plans/{plan['id']}/runs", headers=auth_headers)
+    run = (await client.get(f"/api/v1/impact-runs/{r.json()['id']}", headers=auth_headers)).json()
+    assert run["decision_status"] == "blocked", run
+    g = (await client.get(f"/api/v1/impact-runs/{run['id']}/relations", headers=auth_headers)).json()
+    flagged = [n for n in g["nodes"] if n.get("blocker")]
+    assert flagged and all("198.51.100.80" in n["label"] for n in flagged), g["nodes"]
+    assert all(n.get("blocker") is False for n in g["nodes"] if n not in flagged)
+
+
+async def test_ai_cites_short_reference_codes_not_uuids(client, auth_headers, db_session, monkeypatch) -> None:
+    """2026-10-25 實測（gemma4:26b）：模型要在回覆裡照抄 36 字的 UUID，抄錯或截斷一兩個字整份就不合格，
+    兩次都退回範本摘要。給模型的資料改用短代號（F1、E1、G1），回覆驗證後換回真正的 id 存起來。"""
+    import re
+    pid, run_id = await _run_for_ai(client, auth_headers, db_session)
+
+    def reply(prompt, n):  # type: ignore[no-untyped-def]
+        return json.dumps({"summary": [{"text": "DNS 要改", "finding_ids": ["F1"], "evidence_ids": ["E1"]}],
+                           "uncertainties": [{"text": "部分整合沒接", "gap_ids": ["g1"]}],
+                           "suggested_tasks": [{"phase": "change", "text": "改 DNS", "finding_ids": [" F1 "]}]})
+    calls = await _ai_ready(db_session, monkeypatch, reply)
+    r = await client.post(f"/api/v1/impact-runs/{run_id}/ai-artifacts", headers=auth_headers,
+                          json={"artifact_type": "summary"})
+    assert r.status_code == 202, r.text
+    assert len(calls) == 1
+    data_part = calls[0].split("資料（JSON")[1]
+    assert not re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-", data_part), "UUIDs leaked into the model data"
+    art = (await client.get(f"/api/v1/impact-runs/{run_id}/ai-artifacts", headers=auth_headers)).json()["items"][0]
+    assert art["status"] == "completed", art
+    fs = (await client.get(f"/api/v1/impact-runs/{run_id}/findings", headers=auth_headers)).json()["items"]
+    fid = art["output"]["summary"][0]["finding_ids"][0]
+    assert fid in {f["id"] for f in fs}
+    assert art["output"]["suggested_tasks"][0]["finding_ids"] == [fid]
+    gaps = (await client.get(f"/api/v1/impact-runs/{run_id}/gaps", headers=auth_headers)).json()["items"]
+    assert art["output"]["uncertainties"][0]["gap_ids"][0] in {g["id"] for g in gaps}

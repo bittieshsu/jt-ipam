@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   NCard, NSpace, NSwitch, NInput, NInputNumber, NSelect, NButton, NIcon,
   NFormItem, NAlert, NCheckbox, useMessage,
 } from "naive-ui";
-import { SettingsIcon, SaveIcon, SendIcon } from "@/icons";
+import { CopyIcon, SettingsIcon, SaveIcon, SendIcon } from "@/icons";
 import {
   getNotificationChannels, setNotificationChannels, sendTestEmail, sendTestChannel,
   getNotificationMatrix, setNotificationMatrix,
@@ -133,6 +133,17 @@ async function testChannel(ch: string) {
 // ── 通知矩陣 ──
 const matrix = ref<NotifyMatrix>({});
 const matrixEvents = ref<string[]>([]);
+// 通訊軟體欄：只顯示已啟用的管道（10-25：有啟用 Zulip 之類的，矩陣上也要能逐一勾選）
+const matrixChannels = ref<string[]>(["telegram", "slack", "teams", "nextcloud", "zulip", "webhook"]);
+const CH_LABEL: Record<string, string> = {
+  telegram: "Telegram", slack: "Slack", teams: "Teams", nextcloud: "Nextcloud Talk", zulip: "Zulip", webhook: "",
+};
+const imCols = computed(() => matrixChannels.value.filter((c) => (cfg.value as Record<string, unknown> | null)?.[`${c}_enabled`]));
+const colLabel = (c: string) => (c === "webhook" ? t("notify_ch.webhook_title") : CH_LABEL[c] ?? c);
+/** 「同通知」：這一欄照著第一欄（站內通知）勾 */
+function copyFromInApp(col: string) {
+  for (const ev of matrixEvents.value) if (matrix.value[ev]) matrix.value[ev][col] = matrix.value[ev].in_app;
+}
 const matrixSaving = ref(false);
 function eventLabel(ev: string): string {
   return t(`notify_ch.ev.${ev.replace(/\./g, "_")}`);
@@ -142,6 +153,7 @@ async function loadMatrix() {
     const r = await getNotificationMatrix();
     matrix.value = r.matrix;
     matrixEvents.value = r.events;
+    if (r.channels?.length) matrixChannels.value = r.channels;
   } catch { /* ignore */ }
 }
 async function saveMatrix() {
@@ -181,7 +193,15 @@ onMounted(() => { void load(); void loadMatrix(); });
           <tr>
             <th>{{ t("notify_ch.matrix_event") }}</th>
             <th class="nmx-c">{{ t("notify_ch.matrix_in_app") }}</th>
-            <th class="nmx-c">{{ t("notify_ch.matrix_email") }}</th>
+            <th v-for="col in ['email', ...imCols]" :key="col" class="nmx-c" :data-testid="`nmx-col-${col}`">
+              <div class="nmx-colh">
+                <span>{{ col === "email" ? t("notify_ch.matrix_email") : colLabel(col) }}</span>
+                <n-button size="tiny" secondary :title="t('notify_ch.matrix_copy_hint')" :data-testid="`nmx-copy-${col}`"
+                          @click="copyFromInApp(col)">
+                  <template #icon><n-icon><CopyIcon /></n-icon></template>{{ t("notify_ch.matrix_copy") }}
+                </n-button>
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -193,8 +213,8 @@ onMounted(() => { void load(); void loadMatrix(); });
             <td class="nmx-c">
               <n-checkbox v-if="matrix[ev]" v-model:checked="matrix[ev].in_app" />
             </td>
-            <td class="nmx-c">
-              <n-checkbox v-if="matrix[ev]" v-model:checked="matrix[ev].email" />
+            <td v-for="col in ['email', ...imCols]" :key="col" class="nmx-c">
+              <n-checkbox v-if="matrix[ev]" v-model:checked="matrix[ev][col]" :data-testid="`nmx-${col}-${ev}`" />
             </td>
           </tr>
         </tbody>
@@ -432,4 +452,5 @@ onMounted(() => { void load(); void loadMatrix(); });
   .nmx-c { width: 56px; }
   .nmx-key { word-break: break-all; }
 }
+.nmx-colh { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
 </style>

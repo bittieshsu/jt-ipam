@@ -69,7 +69,7 @@ erDiagram
 ### 2.3 `subnets`（子網路）
 - `section_id`（CASCADE，必填）、`master_subnet_id`（自參照巢狀）、`cidr`（原生 `cidr`）。
 - `vlan_id`、`vrf_id`、`location_id`、`customer_id`、`gateway`（`inet`）、`dns_servers`（逗號分隔）。
-- `is_pool`、`is_full`、`threshold_pct`（使用率通知）、`auto_dns`。
+- `is_pool`、`is_full`、`threshold_pct`（使用率通知）、`auto_dns`（保留欄位，目前沒有作用：jt-ipam 不會寫入 DNS 伺服器）。
 - `archived_at`：非 NULL 表示已歸檔，資料保留但不顯示、不掃描，重疊檢查也忽略（歸檔子網路底下的 IP 一併隱藏）。
 - **掃描**：`scan_enabled`、`scan_method`（`text[]`，預設 `{icmp}`）、`scan_agent_id`（外鍵 → scan_agents；有設定則該子網路改走該掃描代理，而非本機）、`scan_scope`（`auto`、`all`、`known`、`ranges`，預設 `auto`；CHECK 約束 `ck_subnets_scan_scope`）。`auto` 時超過 4,096 個位址的子網路會拿到掃描計畫：已知位址每輪掃、其餘背景探索（見 `services/scan_plan.py`）。
 - `custom_fields`（jsonb）。`cidr` 建 GiST 索引。

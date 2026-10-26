@@ -32,7 +32,7 @@ test("篩選套用到所有分類，頁籤顯示符合／全部", async ({ page 
   await page.locator(".n-tabs-tab", { hasText: /^失聯 IP \(3\)$/ }).click();
 
   const pane = page.locator(".n-tab-pane:visible");
-  await expect(pane.getByPlaceholder(/篩選：IP／主機名稱/)).toBeVisible();
+  await expect(pane.getByPlaceholder(/篩選：IP \/ 主機名稱/)).toBeVisible();
   // 有值之後 Naive UI 會拿掉佔位字元素，之後改用 class 找
   const filter = pane.locator(".cat-filter input");
   await filter.fill("198.51.100.22");

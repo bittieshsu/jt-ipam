@@ -35,6 +35,8 @@ class SectionUpdate(StrictModel):
 
 class SectionRead(SectionBase):
     id: uuid.UUID
+    # 數字的相容 ID（0230）：phpIPAM 相容 API 與 Proxmox VE SDN 的「區段」欄位用
+    compat_id: int | None = None
     created_at: datetime
     updated_at: datetime
     # 由 list/get endpoint 在回傳時計算填入；單獨 fetch 也會帶

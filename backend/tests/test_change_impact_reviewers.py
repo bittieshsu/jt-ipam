@@ -103,3 +103,80 @@ async def test_reviewer_settings_keep_only_existing_ids(client, auth_headers, db
     assert r.status_code == 200, r.text
     cfg = (await client.get("/api/v1/change-impact/settings", headers=auth_headers)).json()["config"]
     assert cfg["reviewer_group_ids"] == [str(g.id)] and cfg["reviewer_user_ids"] == []
+
+
+async def test_reviewer_who_cannot_see_some_review_items_is_told_and_cannot_approve(client, db_session) -> None:
+    """2026-10-25 實測：管理員建的計畫有只有管理員看得到的待覆核項目（Wazuh 綁定位址），指定的審核人看不到。
+    以前伺服器只回「還有 2 項沒處置」，審核人看不到是哪兩項、永遠核准不了。現在：分析結果告訴他有看不到的項目
+    （只說有、不說幾項，跟「看不到的發現不從數字透露」一致），核准時回明確的代碼；要求修改、退回照常可用。
+    名單不會擴大可見範圍，所以不能替看不到的項目背書。"""
+    from datetime import UTC, datetime
+    from app.models.wazuh import WazuhAgent, WazuhInstance
+    _sec, sub, ip = await _setup(db_session)
+    admin, reviewer = await _user(db_session, admin=True), await _user(db_session)
+    await _grant(db_session, reviewer, "subnet", sub.id, "read")
+    wi = WazuhInstance(name=f"wz-{uuid.uuid4().hex[:6]}", api_url="https://192.0.2.9:55000", api_user="ro",
+                       api_password_enc=b"x", api_password_nonce=b"x", enabled=True, last_sync_at=datetime.now(UTC))
+    db_session.add(wi)
+    await db_session.flush()
+    db_session.add(WazuhAgent(instance_id=wi.id, agent_id="017", name="erp", ip=str(ip.ip).split("/")[0],
+                              register_ip=str(ip.ip).split("/")[0], status="active", jt_ipam_address_id=ip.id))
+    await db_session.commit()
+    await _enable(db_session, reviewer_user_ids=[str(reviewer.id)])
+
+    pid = await _run_and_submit(client, _hdr(admin), ip.id)
+    plan = (await client.get(f"/api/v1/change-plans/{pid}", headers=_hdr(reviewer))).json()
+    assert plan["can_review"] is True
+    run_id = plan["current_run_id"] if "current_run_id" in plan else (
+        await client.get(f"/api/v1/change-plans/{pid}/runs", headers=_hdr(reviewer))).json()["items"][0]["id"]
+    run = (await client.get(f"/api/v1/impact-runs/{run_id}", headers=_hdr(reviewer))).json()
+    assert run["review_items_hidden"] is True, run
+    mine = (await client.get(f"/api/v1/impact-runs/{run_id}/findings", headers=_hdr(reviewer),
+                             params={"disposition": "review", "page_size": 200})).json()["items"]
+    disp = {f["id"]: {"action": "will_update"} for f in mine}
+    for decision in ("approve", "accept_risk"):
+        r = await client.post(f"/api/v1/change-plans/{pid}/reviews", headers=_hdr(reviewer),
+                              json={"decision": decision, "rationale": "checked all items", "dispositions": disp})
+        assert r.status_code == 403, r.text
+        assert r.json()["detail"]["code"] == "impact_review_items_hidden", r.text
+    r = await client.post(f"/api/v1/change-plans/{pid}/reviews", headers=_hdr(reviewer),
+                          json={"decision": "request_changes", "rationale": "need an admin to check", "dispositions": {}})
+    assert r.status_code in (200, 201), r.text
+    # 管理員看得到全部：沒有看不到的項目
+    run = (await client.get(f"/api/v1/impact-runs/{run_id}", headers=_hdr(admin))).json()
+    assert run["review_items_hidden"] is False
+
+
+async def test_returned_plan_tells_the_creator_why(client, db_session) -> None:
+    """2026-10-25 實測：退回修改後，申請人的通知只說「退回了」、計畫頁也看不到理由（要翻到歷史頁籤）。
+    通知內文要帶理由；覆核紀錄要帶審核人名稱，計畫頁才能在最上方顯示「誰退回、為什麼」。"""
+    _sec, sub, ip = await _setup(db_session)
+    creator, reviewer = await _user(db_session), await _user(db_session)
+    await _grant(db_session, creator, "subnet", sub.id, "write")
+    await _grant(db_session, reviewer, "subnet", sub.id, "read")
+    await _enable(db_session, reviewer_user_ids=[str(reviewer.id)])
+    pid = await _run_and_submit(client, _hdr(creator), ip.id)
+    r = await client.post(f"/api/v1/change-plans/{pid}/reviews", headers=_hdr(reviewer),
+                          json={"decision": "request_changes", "rationale": "請改用 .122，.121 已有人在用", "dispositions": {}})
+    assert r.status_code in (200, 201), r.text
+    n = (await _notified(db_session, creator.id, pid))[-1]
+    assert "請改用 .122" in (n.body or ""), n.body
+    assert (n.params or {}).get("reason") == "請改用 .122，.121 已有人在用", n.params
+    rv = (await client.get(f"/api/v1/change-plans/{pid}/reviews", headers=_hdr(creator))).json()["items"][0]
+    assert rv["reviewer_name"] == reviewer.display_name
+
+
+async def test_deleted_plan_clears_its_notifications_and_cannot_be_reviewed(client, db_session) -> None:
+    """2026-10-25 實測：送審中的計畫刪除（封存）後，審核人的通知還在，點進去看得到「覆核」按鈕，按了才說計畫已關閉。"""
+    _sec, sub, ip = await _setup(db_session)
+    creator, reviewer = await _user(db_session), await _user(db_session)
+    await _grant(db_session, creator, "subnet", sub.id, "write")
+    await _grant(db_session, reviewer, "subnet", sub.id, "read")
+    await _enable(db_session, reviewer_user_ids=[str(reviewer.id)])
+    pid = await _run_and_submit(client, _hdr(creator), ip.id)
+    assert len(await _notified(db_session, reviewer.id, pid)) == 1
+    r = await client.delete(f"/api/v1/change-plans/{pid}", headers=_hdr(creator))
+    assert r.status_code == 200, r.text
+    assert await _notified(db_session, reviewer.id, pid) == []
+    plan = (await client.get(f"/api/v1/change-plans/{pid}", headers=_hdr(reviewer))).json()
+    assert plan["archived_at"] and plan["can_review"] is False

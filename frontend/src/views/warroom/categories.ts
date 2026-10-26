@@ -7,6 +7,9 @@ const CAT_KEYS: Record<string, string> = {
   mac_flapping: "anomaly.mac_flapping", identity_changes: "anomaly.identity_changes",
 };
 
+/** 所有異常類別（順序同後端 anomaly.ALL_CATEGORIES）：戰情室 AI 情報的重大事件類別從這裡挑 */
+export const ANOMALY_CATEGORIES = Object.keys(CAT_KEYS);
+
 export function anomalyCategoryLabel(category: string, t: (k: string) => string, te: (k: string) => boolean): string {
   const k = CAT_KEYS[category];
   return k && te(k) ? t(k) : category;

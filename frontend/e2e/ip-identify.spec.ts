@@ -147,7 +147,7 @@ test("管理員：按下探測 → 開探測頁 → 看得到進度 → 完成�
   await expect(page.getByTestId("identify-history-item")).toHaveCount(2);
 
   const sum = page.getByTestId("identify-summary");
-  await expect(sum).toContainText("伺服器／電腦");
+  await expect(sum).toContainText("伺服器 / 電腦");
   // 類型是推測：畫面要講明可能不準（使用者回饋：NAS 被判成攝影機）
   await expect(page.getByTestId("identify-guess")).toContainText("推測");
   await expect(page.getByTestId("identify-guess-note")).toContainText("可能判斷錯誤");

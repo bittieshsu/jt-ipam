@@ -195,6 +195,8 @@ const routes: RouteRecordRaw[] = [
       { path: "migration", name: "migration", component: () => import("@/views/Migration.vue"), meta: { admin: true } },
       { path: "system-transfer", name: "system_transfer", component: () => import("@/views/SystemTransfer.vue"), meta: { admin: true } },
       { path: "import", name: "import", component: () => import("@/views/ImportExternal.vue"), meta: { admin: true } },
+      // 不存在的網址：顯示「找不到頁面」，不要整頁空白（要放最後，前面的路由先比對）
+      { path: ":pathMatch(.*)*", name: "not_found", component: () => import("@/views/NotFound.vue") },
     ],
   },
 ];

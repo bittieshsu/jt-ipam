@@ -124,9 +124,9 @@ async def notify_admins_event(
 ) -> int:
     """依通知矩陣把單一事件發給所有 admin（站內 + Email）。回傳收到站內通知的人數。"""
     from app.models.user import User
-    from app.services.system_config import get_notification_matrix
+    from app.services.system_config import get_notification_matrix, notify_wanted
     ch = (await get_notification_matrix(session)).get(event, {"in_app": True, "email": False})
-    if not (ch.get("in_app") or ch.get("email")):
+    if not notify_wanted(ch):
         return 0
     admins = (await session.execute(
         select(User).where(User.is_admin.is_(True), User.is_active.is_(True))
@@ -142,7 +142,7 @@ async def notify_admins_event(
     if ch.get("email"):
         await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body or title, link=link)
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body, link=link, severity=severity)
+    await broadcast_channels(session, subject=title, text=body, link=link, severity=severity, event=event)
     return sent
 
 

@@ -676,11 +676,11 @@ DEPLOY_1_PROFILE=iis
 DEPLOY_1_BINDING=0.0.0.0:443
 #   位址填 IP → 非 SNI 繫結；填主機名稱（www.example.com:443）→ SNI 繫結
 
-# ── 只匯入憑證存放區（Exchange／RD 閘道／自家程式自己指定 thumbprint）──
+# ── 只匯入憑證存放區（Exchange / RD 閘道 / 自家程式自己指定 thumbprint）──
 DEPLOY_2_CERT=wildcard-example-com
 DEPLOY_2_PROFILE=store
 
-# ── 寫成檔案（給會讀 PEM／PFX 的軟體）──
+# ── 寫成檔案（給會讀 PEM / PFX 的軟體）──
 DEPLOY_3_CERT=wildcard-example-com
 DEPLOY_3_PROFILE=files
 DEPLOY_3_FULLCHAIN=C:\\apps\\ssl\\site.pem

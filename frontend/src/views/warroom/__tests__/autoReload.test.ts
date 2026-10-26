@@ -31,13 +31,13 @@ describe("war room auto reload", () => {
     ready = true;
     await vi.advanceTimersByTimeAsync(30_000);
     expect(reload).toHaveBeenCalledTimes(1);
-    expect(takeResume()).toEqual({ key: "services", page: 2, paused: true });
+    expect(takeResume()).toEqual({ key: "services", page: 2, paused: true, pinned: false });
     stop();
   });
 
   it("resume is taken once and ignored when stale", () => {
-    saveResume({ key: "capacity", page: 3, paused: false });
-    expect(takeResume()).toEqual({ key: "capacity", page: 3, paused: false });
+    saveResume({ key: "capacity", page: 3, paused: false, pinned: true });
+    expect(takeResume()).toEqual({ key: "capacity", page: 3, paused: false, pinned: true });   // 釘選也要接著（10-26 P 鍵）
     expect(takeResume()).toBeNull();
     sessionStorage.setItem(RESUME_KEY, JSON.stringify({ key: "capacity", page: 1, paused: false, at: Date.now() - 11 * 60_000 }));
     expect(takeResume()).toBeNull();

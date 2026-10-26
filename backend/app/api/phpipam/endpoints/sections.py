@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.phpipam.helpers import (
     phpipam_current_user,
     phpipam_response,
+    resolve_section,
     section_to_phpipam,
     subnet_to_phpipam,
 )
@@ -72,15 +73,7 @@ async def get_section(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     started = time.perf_counter()
-    section: Section | None = None
-    # 嘗試 UUID
-    try:
-        section = await session.get(Section, uuid.UUID(ident))
-    except ValueError:
-        # by name
-        section = (
-            await session.execute(select(Section).where(Section.name == ident))
-        ).scalar_one_or_none()
+    section: Section | None = await resolve_section(session, ident)   # UUID、數字相容 ID 或名稱
     if section is None:
         raise HTTPException(404, detail="Section not found")
 
@@ -102,10 +95,10 @@ async def list_section_subnets(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     started = time.perf_counter()
-    try:
-        section_id = uuid.UUID(ident)
-    except ValueError as exc:
-        raise HTTPException(400, detail="Invalid section id") from exc
+    sec_obj = await resolve_section(session, ident)
+    if sec_obj is None:
+        raise HTTPException(404, detail="Section not found")
+    section_id = sec_obj.id
 
     rows = list(
         (await session.execute(select(Subnet).where(Subnet.section_id == section_id))).scalars().all()
@@ -188,12 +181,7 @@ async def update_section(
 ) -> dict[str, Any]:
     started = time.perf_counter()
     _require_admin(user)
-    try:
-        sid = uuid.UUID(ident)
-    except ValueError as exc:
-        raise HTTPException(400, detail="Invalid id") from exc
-
-    sec = await session.get(Section, sid)
+    sec = await resolve_section(session, ident)
     if sec is None:
         raise HTTPException(404, detail="Not found")
 
@@ -235,12 +223,7 @@ async def delete_section(
 ) -> dict[str, Any]:
     started = time.perf_counter()
     _require_admin(user)
-    try:
-        sid = uuid.UUID(ident)
-    except ValueError as exc:
-        raise HTTPException(400, detail="Invalid id") from exc
-
-    sec = await session.get(Section, sid)
+    sec = await resolve_section(session, ident)
     if sec is None:
         raise HTTPException(404, detail="Not found")
 

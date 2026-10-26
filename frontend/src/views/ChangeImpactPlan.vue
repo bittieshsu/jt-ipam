@@ -72,6 +72,18 @@
             {{ st.index + 1 }}. {{ st.name }}：{{ t(st.approved ? "change_impact.step_done" : st.is_current ? "change_impact.step_current" : "change_impact.step_waiting") }}
           </n-tag>
         </div>
+        <n-alert v-if="plan.archived_at" type="info" :bordered="false" style="margin-top: 10px" data-testid="cip-archived">
+          {{ t("change_impact.archived_notice", { at: fmtDateTime(plan.archived_at) }) }}
+        </n-alert>
+        <!-- 被退回或駁回：誰、什麼時候、為什麼，放在最上面（2026-10-25 實測：理由只在歷史頁籤，申請人找不到） -->
+        <n-alert v-if="returnedReview" :type="returnedReview.decision === 'reject' ? 'error' : 'warning'" :bordered="false"
+                 style="margin-top: 10px" data-testid="cip-returned">
+          <template #header>
+            {{ t(`change_impact.returned_${returnedReview.decision}`, { user: returnedReview.reviewer_name || "—",
+                                                                       at: fmtDateTime(returnedReview.created_at) }) }}
+          </template>
+          <span class="cip-wrap">{{ returnedReview.rationale }}</span>
+        </n-alert>
         <div class="cip-dryrun" data-testid="cip-dryrun">{{ t("change_impact.dry_run_notice") }}</div>
       </n-card>
     </n-spin>
@@ -307,6 +319,7 @@
             <div v-for="rv in reviews" :key="rv.id" class="cip-hist__row">
               <span>{{ fmtDateTime(rv.created_at) }}</span>
               <span>{{ t(`change_impact.review_decision.${rv.decision}`) }}</span>
+              <span>{{ rv.reviewer_name || "—" }}</span>
               <span>{{ t("change_impact.revision", { n: rv.revision }) }}</span>
               <span class="cip-muted cip-wrap">{{ rv.rationale }}</span>
             </div>
@@ -326,8 +339,19 @@
 
     <!-- 覆核 -->
     <n-modal v-model:show="reviewOpen" preset="card" :title="t('change_impact.act.review')" style="width: min(720px, 96vw)">
+      <!-- 有我看不到的需覆核項目：不能替它核准，先講明，核准類選項停用（2026-10-25 實測：以前只回「還有 N 項沒處置」） -->
+      <!-- 有阻擋項目不能核准（伺服器也會擋）：先講明，不要讓審核人逐項選完處置才被退（2026-10-25 實測） -->
+      <n-alert v-if="run?.decision_status === 'blocked'" type="error" :bordered="false" style="margin-bottom: 10px"
+               data-testid="cip-review-blocked">
+        {{ t("change_impact.review_blocked") }}
+      </n-alert>
+      <n-alert v-else-if="run?.review_items_hidden" type="warning" :bordered="false" style="margin-bottom: 10px"
+               data-testid="cip-review-hidden">
+        {{ t("change_impact.review_hidden") }}
+      </n-alert>
       <n-radio-group v-model:value="review.decision" name="decision" style="margin-bottom: 10px">
-        <n-radio-button v-for="d in ['approve', 'accept_risk', 'request_changes', 'reject']" :key="d" :value="d">
+        <n-radio-button v-for="d in ['approve', 'accept_risk', 'request_changes', 'reject']" :key="d" :value="d"
+                        :disabled="!canApprove && (d === 'approve' || d === 'accept_risk')">
           {{ t(`change_impact.review_decision.${d}`) }}
         </n-radio-button>
       </n-radio-group>
@@ -492,7 +516,8 @@ const ACTIVE = ["queued", "snapshotting", "extracting", "analyzing", "persisting
 const isActive = computed(() => !!run.value && ACTIVE.includes(run.value.job_status));
 const isDone = computed(() => !!run.value && ["completed", "partial"].includes(run.value.job_status));
 const expired = computed(() => !!run.value?.expires_at && new Date(run.value.expires_at).getTime() < Date.now());
-const editable = computed(() => !!plan.value && !["closed", "cancelled"].includes(plan.value.lifecycle));
+// 已刪除（封存）的計畫只能看：所有操作都收起來（2026-10-25 實測：送審中刪掉的計畫還看得到「覆核」）
+const editable = computed(() => !!plan.value && !plan.value.archived_at && !["closed", "cancelled"].includes(plan.value.lifecycle));
 const canRun = computed(() => !!plan.value?.can_edit && editable.value && !isActive.value
                               && ["draft", "in_review", "approved"].includes(plan.value.lifecycle));
 const phases = ["precheck", "change", "verify", "rollback"] as const;
@@ -502,6 +527,7 @@ const actions = computed<string[]>(() => {
   const p = plan.value;
   if (!p) return [];
   const out: string[] = [];
+  if (p.archived_at) return out;
   if (p.can_edit && p.lifecycle === "draft" && isDone.value && !expired.value) out.push("submit");
   if (p.lifecycle === "in_review" && p.can_review) out.push("review");
   if (p.can_edit && p.lifecycle === "approved") out.push("start");
@@ -548,7 +574,15 @@ const reviewersText = computed(() => {
 });
 
 /** 推進流程的動作（取消另外放在紅框按鈕、要先確認） */
+// 最近一次覆核是退回或駁回、而且還沒重新送審：在最上面講明理由
+const returnedReview = computed(() => {
+  const r = plan.value?.latest_review;
+  return r && (r.decision === "request_changes" || r.decision === "reject")
+    && (plan.value?.lifecycle === "draft" || plan.value?.lifecycle === "cancelled") ? r : null;
+});
 const forwardActions = computed(() => actions.value.filter((a) => a !== "cancel"));
+// 有阻擋項目、或有我看不到的需覆核項目：核准與接受風險都不行，只能要求修改或退回
+const canApprove = computed(() => run.value?.decision_status !== "blocked" && !run.value?.review_items_hidden);
 const ACT_ICONS: Record<string, Component> = {
   submit: SendIcon, review: ReviewIcon, start: PlayIcon, verify: OkIcon, close: ArchiveIcon,
 };
@@ -672,8 +706,15 @@ const findingCols = computed<DataTableColumns<ImpactFinding>>(() => [
 ]);
 // 欄寬：時間與時效固定且不換行，物件欄吃剩下的寬度（使用者 10-21：物件欄太空、右邊的時間被擠成兩行）
 const nowrap = (v: string) => h("span", { style: "white-space: nowrap" }, v);
+// 證據來自哪一台整合：同一筆紀錄在兩台 DNS 上會是兩列，只寫「DNS」看起來像重複（2026-10-25 實測）
+const sourceNames = computed(() => new Map<string, string>((run.value?.scope_manifest?.sources ?? [])
+  .filter((s) => s.id).map((s) => [`${s.kind}:${s.id}`, s.name])));
+function evidenceSource(e: ImpactEvidence): string {
+  const name = e.integration_ref ? sourceNames.value.get(e.integration_ref) : undefined;
+  return name ? `${catLabel(e.source_type)} · ${name}` : catLabel(e.source_type);
+}
 const evidenceCols = computed<DataTableColumns<ImpactEvidence>>(() => [
-  { title: t("change_impact.col_source"), key: "source_type", width: 110, render: (r) => nowrap(catLabel(r.source_type)) },
+  { title: t("change_impact.col_source"), key: "source_type", width: 170, render: (r) => nowrap(evidenceSource(r)) },
   { title: t("change_impact.col_object"), key: "label", minWidth: 220,
     render: (r) => h("span", { class: "cip-mono cip-wrap" }, r.label) },
   { title: t("change_impact.observed"), key: "observed_at", width: 180,
@@ -775,7 +816,11 @@ async function act(a: string) {
   if (!plan.value) return;
   // 送審：第一次只打開確認對話框（列出會通知的審核人），在對話框按確認才真的送出
   if (a === "submit" && !submitConfirmOpen.value) { submitConfirmOpen.value = true; return; }
-  if (a === "review") { review.decision = run.value?.completeness === "complete" ? "approve" : "accept_risk"; reviewOpen.value = true; return; }
+  if (a === "review") {
+    review.decision = !canApprove.value ? "request_changes"
+      : run.value?.completeness === "complete" ? "approve" : "accept_risk";
+    reviewOpen.value = true; return;
+  }
   busy.value = a;
   try {
     plan.value = { ...plan.value, ...(await transitionPlan(plan.value.id, a)) };
@@ -878,7 +923,7 @@ function findingCols4Export(): string[] {
 /** 報告用的影響清單：8 欄塞不進 A4 直式（右邊會超出去），併成 4 欄、資訊不少 ——
  * 處置＋嚴重度、類型（＋類別）＋名稱、原因、影響＋證據強度；阻擋／需覆核的第一欄上色 */
 function pair(a: string, b: string): string {
-  return /^(zh|ja)/.test(String(locale.value)) ? `${a}／${b}` : `${a} / ${b}`;
+  return `${a} / ${b}`;   // 中日文也用半形斜線加空白（2026-10-24 全站規則；這裡曾特地組成全形）
 }
 function findingReportRow(f: ImpactFinding): string[] {
   const type = subjectTypeLabel(f.subject_type, f.category);
@@ -933,11 +978,12 @@ function buildReport(): Report {
   }
   if (reviews.value.length) {
     sections.push({ heading: t("change_impact.reviews_title"), table: {
-      cols: [t("change_impact.export_time"), t("change_impact.export_result"), t("change_impact.export_revision"),
-             t("change_impact.export_rationale")],
-      widths: [22, 14, 10, 54],
+      cols: [t("change_impact.export_time"), t("change_impact.export_result"), t("change_impact.export_reviewer"),
+             t("change_impact.export_revision"), t("change_impact.export_rationale")],
+      widths: [20, 13, 16, 9, 42],
       rows: reviews.value.map((rv) => [fmtDateTime(rv.created_at), t(`change_impact.review_decision.${rv.decision}`),
-                                       t("change_impact.revision", { n: rv.revision }), rv.rationale ?? ""]) } });
+                                       rv.reviewer_name || "—", t("change_impact.revision", { n: rv.revision }),
+                                       rv.rationale ?? ""]) } });
   }
   return { title: p.title, meta, sections, brand: "jt-ipam",
            subtitle: [t("change_impact.title"), p.target_label, t("change_impact.revision", { n: p.revision })]
@@ -957,7 +1003,7 @@ function buildSheets(): Sheet[] {
                                                            t(`change_impact.task_state.${x.state}`), taskTitle(t, te, x)])) },
     { name: t("change_impact.evidence_title"), cols: [t("change_impact.col_source"), t("change_impact.col_object"),
                                                       t("change_impact.observed"), t("change_impact.collected")],
-      rows: evidence.value.map((e) => [catLabel(e.source_type), e.label, e.observed_at ? fmtDateTime(e.observed_at) : "",
+      rows: evidence.value.map((e) => [evidenceSource(e), e.label, e.observed_at ? fmtDateTime(e.observed_at) : "",
                                        e.collected_at ? fmtDateTime(e.collected_at) : ""]) },
   ];
 }
@@ -1071,7 +1117,7 @@ onBeforeUnmount(() => { if (pollTimer) clearTimeout(pollTimer); });
 .cip-ai__why { font-size: 12.5px; margin-top: 2px; }
 .cip-hist { display: grid; gap: 6px 20px; align-items: center; font-size: 13px; justify-content: start; }
 .cip-hist--runs { grid-template-columns: repeat(5, max-content); }
-.cip-hist--reviews { grid-template-columns: max-content max-content max-content minmax(0, 1fr); }
+.cip-hist--reviews { grid-template-columns: max-content max-content max-content max-content minmax(0, 1fr); }
 .cip-hist--revisions { grid-template-columns: repeat(3, max-content); }
 .cip-hist__row { display: contents; }
 .cip-hist a { cursor: pointer; color: #2080f0; }

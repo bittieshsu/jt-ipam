@@ -51,6 +51,8 @@ function params(t: T, te: Te, p: Record<string, unknown> | null | undefined): Re
   for (const [k, v] of Object.entries(p ?? {})) {
     if (v === null || v === undefined || v === "") { out[k] = "—"; continue; }
     if (TIME_PARAMS.has(k)) { out[k] = fmtDateTime(String(v)); continue; }
+    // 單一來源也要翻（2026-10-25：新位址被看到的原因曾印出「scanner」）
+    if (k === "source") { out[k] = sourceText(t, te, String(v)); continue; }
     if (k === "sources") {
       out[k] = String(v).split(",").map((x) => x.trim()).filter(Boolean).map((x) => sourceText(t, te, x))
         .join(t("change_impact.param.source_sep"));

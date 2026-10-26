@@ -37,6 +37,8 @@ describe("輪播", () => {
   it("同主題最多播 maxSubpages 頁，再換下一個主題的第 1 頁", () => {
     expect(nextStep(pl, { key: "capacity", page: 1 }, 7, 2)).toEqual({ key: "capacity", page: 2 });
     expect(nextStep(pl, { key: "capacity", page: 2 }, 7, 2)).toEqual({ key: "collection", page: 1 });
+    // 正在播的主題被管理員從清單拿掉（電視換頁時重讀設定）：回到第一個，不停在已移除的主題
+    expect(nextStep(pl, { key: "removed-topic", page: 1 }, 7, 2)).toEqual({ key: pl[0], page: 1 });
     expect(nextStep(pl, { key: "collection", page: 1 }, 1, 2)).toEqual({ key: "overview", page: 1 });
   });
   it("上一步", () => {

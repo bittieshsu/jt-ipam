@@ -46,7 +46,7 @@ async def test_existing_setting_carries_over(db_session):
     for ev in ANOMALY_EVENTS:
         if ev in INFO_ANOMALY_EVENTS:        # 只是參考的類別刻意不帶（見 test_arp_flux_is_informational…）
             continue
-        assert m[ev] == {"in_app": False, "email": True}, f"{ev} 沒有沿用舊設定"
+        assert {k: m[ev][k] for k in ("in_app", "email")} == {"in_app": False, "email": True}, f"{ev} 沒有沿用舊設定"
 
 
 async def test_per_category_setting_wins_over_the_legacy_value(db_session):
@@ -62,8 +62,8 @@ async def test_per_category_setting_wins_over_the_legacy_value(db_session):
     ))
     await db_session.flush()
     m = await get_notification_matrix(db_session)
-    assert m["anomaly.ghost_ips"] == {"in_app": False, "email": False}
-    assert m["anomaly.ip_conflicts"] == {"in_app": True, "email": True}
+    assert {k: m["anomaly.ghost_ips"][k] for k in ("in_app", "email")} == {"in_app": False, "email": False}
+    assert {k: m["anomaly.ip_conflicts"][k] for k in ("in_app", "email")} == {"in_app": True, "email": True}
 
 
 async def test_notifications_respect_the_per_category_switch(db_session, admin_user):
@@ -207,11 +207,11 @@ async def test_arp_flux_is_informational_and_off_by_default(db_session):
     from app.services.system_config import NOTIFY_MATRIX_KEY, get_notification_matrix
 
     m = await get_notification_matrix(db_session)
-    assert m["anomaly.arp_flux"] == {"in_app": False, "email": False}
+    assert {k: m["anomaly.arp_flux"][k] for k in ("in_app", "email")} == {"in_app": False, "email": False}
     assert m["anomaly.ip_conflicts"]["in_app"] is True
     db_session.add(SystemSetting(key=NOTIFY_MATRIX_KEY,
                                  value={"anomaly.detected": {"in_app": True, "email": True}}))
     await db_session.flush()
     m = await get_notification_matrix(db_session)
-    assert m["anomaly.arp_flux"] == {"in_app": False, "email": False}
+    assert {k: m["anomaly.arp_flux"][k] for k in ("in_app", "email")} == {"in_app": False, "email": False}
     assert m["anomaly.ip_conflicts"]["email"] is True

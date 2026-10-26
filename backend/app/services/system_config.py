@@ -1817,12 +1817,22 @@ NOTIFY_EVENTS: tuple[tuple[str, bool, bool], ...] = (
 )
 
 
+#: 通訊軟體欄（跟 notify_channels.WEBHOOK_CHANNELS 同一份）：每個事件可以逐一勾選要不要發到哪個通訊軟體。
+#: 沒存過的值跟「站內通知」那一欄一樣（10-25 使用者：「預設跟第一欄通知一樣」）。
+NOTIFY_IM_CHANNELS: tuple[str, ...] = ("telegram", "slack", "teams", "nextcloud", "zulip", "webhook")
+
+
 def _default_matrix() -> dict[str, dict[str, bool]]:
     return {k: {"in_app": ia, "email": em} for k, ia, em in NOTIFY_EVENTS}
 
 
+def notify_wanted(ch: dict[str, bool]) -> bool:
+    """這個事件至少有一個管道要發（站內、Email 或任何一個通訊軟體）。以前只看前兩欄，只勾通訊軟體的事件整個不發。"""
+    return any(bool(v) for v in ch.values())
+
+
 async def get_notification_matrix(session: AsyncSession) -> dict[str, dict[str, bool]]:
-    """回傳通知矩陣 {event: {in_app, email}}，未設定的事件用預設值補齊。"""
+    """回傳通知矩陣 {event: {in_app, email, telegram, slack, teams, nextcloud, zulip, webhook}}，未設定的用預設值補齊。"""
     out = _default_matrix()
     row = await session.get(SystemSetting, NOTIFY_MATRIX_KEY)
     stored = row.value if row and isinstance(row.value, dict) else {}
@@ -1846,6 +1856,11 @@ async def get_notification_matrix(session: AsyncSession) -> dict[str, dict[str, 
                 out[k]["in_app"] = v["in_app"]
             if isinstance(v.get("email"), bool):
                 out[k]["email"] = v["email"]
+    # 通訊軟體欄：存過就照存的，沒存過跟站內那一欄一樣
+    for k, row_v in out.items():
+        st = stored.get(k) if isinstance(stored.get(k), dict) else {}
+        for chn in NOTIFY_IM_CHANNELS:
+            row_v[chn] = st[chn] if isinstance(st.get(chn), bool) else row_v["in_app"]
     return out
 
 
@@ -1864,6 +1879,10 @@ async def set_notification_matrix(
         ia = bool(v["in_app"]) if isinstance(v, dict) and isinstance(v.get("in_app"), bool) else dflt["in_app"]
         em = bool(v["email"]) if isinstance(v, dict) and isinstance(v.get("email"), bool) else dflt["email"]
         val[k] = {"in_app": ia, "email": em}
+        # 通訊軟體欄只存有明確給的值；沒給的之後讀取時跟著站內那一欄
+        for chn in NOTIFY_IM_CHANNELS:
+            if isinstance(v, dict) and isinstance(v.get(chn), bool):
+                val[k][chn] = bool(v[chn])
     row.value = val
     row.updated_by = updated_by_user_id
     flag_modified(row, "value")

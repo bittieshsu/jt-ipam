@@ -1592,10 +1592,11 @@ async def notify_stale(
     # 通知發送設定裡可以關掉（`ip.stale`）。原本是直接推 —— 收得到卻關不掉。
     ch = (await get_notification_matrix(session)).get(
         "ip.stale", {"in_app": True, "email": False})
-    if not ch.get("in_app"):
+    from app.services.system_config import notify_wanted
+    if not notify_wanted(ch):
         return {"notified_admins": 0, "ip_count": n}
 
-    for admin in admins:
+    for admin in admins if ch.get("in_app") else []:
         await push_notification(
             session,
             user_id=admin.id,
@@ -1610,9 +1611,10 @@ async def notify_stale(
             params=_gp,
         )
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body, link=f"/subnets/{payload.subnet_id}", emoji="⏰")
+    await broadcast_channels(session, subject=title, text=body, link=f"/subnets/{payload.subnet_id}", emoji="⏰",
+                             event="ip.stale")
     await session.commit()
-    return {"notified_admins": len(admins), "ip_count": n}
+    return {"notified_admins": len(admins) if ch.get("in_app") else 0, "ip_count": n}
 
 
 # ─────────────────── CSV 匯出 / 匯入 ───────────────────

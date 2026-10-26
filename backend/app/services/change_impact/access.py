@@ -73,6 +73,19 @@ def visible_counts(bundle: dict[str, Any], stored: dict[str, Any] | None) -> dic
     }
 
 
+async def review_items_hidden(session: AsyncSession, run: Any, v: Viewer) -> bool:
+    """這次分析有沒有這個人看不到的「需覆核」項目。覆核要每一項都有處置，看不到的沒辦法處置也不該替它背書
+    （審核人名單不擴大可見範圍）—— 只回有沒有，不回數量（看不到的發現不從數字透露）。2026-10-25 實測發現。"""
+    from sqlalchemy import select
+
+    from app.models.change_impact import ImpactFinding
+    if v.is_admin:
+        return False
+    rows = (await session.execute(select(ImpactFinding.visibility_type, ImpactFinding.visibility_id).where(
+        ImpactFinding.run_id == run.id, ImpactFinding.disposition == "review"))).all()
+    return any(not v.can(t, i) for t, i in rows)
+
+
 def same_scope(run: Any, v: Viewer) -> bool:
     return not run.visible_scope_hash or run.visible_scope_hash == v.scope_hash()
 

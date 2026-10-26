@@ -82,6 +82,10 @@ async def ip_hints(session: AsyncSession, ips: list[str]) -> dict[str, dict[str,
                 h["platform"] = vm["platform"]
             if vm.get("os"):
                 h["os"] = str(vm["os"])[:60]
+            if vm.get("node"):
+                h["node"] = str(vm["node"])[:60]
+            if vm.get("cluster"):
+                h["cluster"] = str(vm["cluster"])[:60]
         rec = records.get(ip)
         if rec is not None:
             if rec.device_kind:
@@ -104,3 +108,59 @@ async def ip_hints(session: AsyncSession, ips: list[str]) -> dict[str, dict[str,
                                                           in_values(DNSRecord.value, ips)))).all():
         out.setdefault(value, {}).setdefault("dns", str(name)[:80])
     return out
+
+
+#: 接入埠最多看到幾個 MAC：超過就當成上聯埠或樹莓派一類的小交換器後面，寧可不寫也不要寫錯
+ACCESS_PORT_MAX_MACS = 8
+
+
+async def switch_port_of(session: AsyncSession, mac: str) -> dict[str, Any] | None:
+    """這個 MAC 接在哪台交換器的哪個埠（戰情室 AI 情報的 WARNING 用，使用者 10-26）。
+
+    MAC 會出現在路徑上每一台交換器的上聯埠，所以挑「看到的 MAC 最少」的那個埠當接入埠；
+    連那個埠都看到很多 MAC（上聯、後面接了小交換器）就不寫。FDB 有 LibreNMS、MikroTik、SNMP 三種列，
+    交換器名稱分別來自 LibreNMS 的 sysname、jt-ipam 裝置名稱、MikroTik 名稱、SNMP 目標對應的裝置。
+    只給管理員看（WARNING 本身就只給完整權限的帳號）。
+    """
+    from sqlalchemy import func
+
+    from app.models.device import Device
+    from app.models.librenms import FDBEntry, LibreNMSDevice
+    from app.models.mikrotik import MikroTikRouter
+    from app.models.snmp import SnmpTarget
+
+    keys = (FDBEntry.device_id, FDBEntry.switch_device_id, FDBEntry.mikrotik_router_id, FDBEntry.snmp_target_id)
+    rows = (await session.execute(
+        select(*keys, FDBEntry.port_name, FDBEntry.vlan_id_num, func.max(FDBEntry.last_seen_at))
+        .where(FDBEntry.mac == mac, FDBEntry.port_name.is_not(None))
+        .group_by(*keys, FDBEntry.port_name, FDBEntry.vlan_id_num)
+        .order_by(func.max(FDBEntry.last_seen_at).desc()).limit(12))).all()   # bounded: 一個 MAC 最多看 12 個埠
+    best: tuple[int, Any] | None = None
+    for r in rows:
+        dev, sw, ros, snmp, port = r[0], r[1], r[2], r[3], r[4]
+        cond = [FDBEntry.port_name == port]
+        for col, v in zip(keys, (dev, sw, ros, snmp), strict=True):
+            cond.append(col == v if v is not None else col.is_(None))
+        n = (await session.execute(select(func.count(func.distinct(FDBEntry.mac))).where(*cond))).scalar_one()
+        if best is None or n < best[0]:
+            best = (int(n), r)
+    if best is None or best[0] > ACCESS_PORT_MAX_MACS:
+        return None
+    dev, sw, ros, snmp, port, vlan, _ = best[1]
+    name = None
+    if dev is not None:
+        ld = await session.get(LibreNMSDevice, dev)
+        name = (ld.sysname or ld.hostname) if ld else None
+    elif sw is not None:
+        d = await session.get(Device, sw)
+        name = d.name if d else None
+    elif ros is not None:
+        rt = await session.get(MikroTikRouter, ros)
+        name = rt.name if rt else None
+    elif snmp is not None:
+        t = await session.get(SnmpTarget, snmp)
+        d = await session.get(Device, t.device_id) if t else None
+        name = d.name if d else None
+    if not name:
+        return None
+    return {"switch": str(name)[:60], "port": str(port)[:40], "vlan": vlan}

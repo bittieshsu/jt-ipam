@@ -339,8 +339,8 @@ export function buildRacksSvg(
       // 「其他」與沒分類的：灰底加斜紋，跟畫面與對外嵌入 SVG（rack_svg.py 的 rd-other）一樣
       let fill = colorFor(dev.type);
       if (fill === RACK_OTHER_COLOR) {
-        defs.add(`<pattern id="rd-other" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">`
-          + `<rect width="11" height="11" fill="${RACK_OTHER_COLOR}"/><rect width="5" height="11" fill="rgba(255,255,255,0.22)"/></pattern>`);
+        defs.add(`<pattern id="rd-other" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">`
+          + `<rect width="14" height="14" fill="${RACK_OTHER_COLOR}"/><rect width="2" height="14" fill="rgba(255,255,255,0.13)"/></pattern>`);
         fill = "url(#rd-other)";
       }
       p.push(`<rect x="${x + 1}" y="${y + 1}" width="${Math.max(1, b.w - 2)}" height="${Math.max(1, b.h - 2)}" fill="${fill}" stroke="rgba(0,0,0,0.3)"/>`);

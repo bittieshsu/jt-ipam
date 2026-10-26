@@ -33,7 +33,7 @@ test.describe("API 權杖", () => {
     await expect(created).toBeVisible({ timeout: 10_000 });
     const shown = await created.locator("textarea").inputValue();
     expect(shown).toMatch(/^jt_[a-z]+_/);
-    await created.getByRole("button", { name: "我已保存好" }).click();
+    await created.getByRole("button", { name: "我已儲存好" }).click();
     await expect(created).toBeHidden();
 
     // 列表出現該權杖，且標記為唯讀
@@ -68,7 +68,7 @@ test.describe("API 權杖", () => {
     const created = page.locator(".n-modal", { hasText: "權杖已建立" });
     await expect(created).toBeVisible({ timeout: 10_000 });
     const token = await created.locator("textarea").inputValue();
-    await created.getByRole("button", { name: "我已保存好" }).click();
+    await created.getByRole("button", { name: "我已儲存好" }).click();
 
     const base = process.env.E2E_BASE_URL || "http://localhost:5173";
     const auth = { Authorization: `Bearer ${token}` };

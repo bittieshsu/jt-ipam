@@ -353,8 +353,11 @@ async def send_one(cfg: dict[str, Any], channel: str, subject: str, text: str | 
 async def broadcast_channels(session: AsyncSession, *, subject: str, text: str | None = None,
                              link: str | None = None, severity: str | None = None,
                              emoji: str | None = None, bullets: list[str] | None = None,
-                             rows: list[Row] | None = None) -> None:
-    """把一則事件推到所有『已啟用』的 webhook 型管道（各自 best-effort，不影響主流程）。
+                             rows: list[Row] | None = None, event: str | None = None,
+                             only: set[str] | None = None) -> None:
+    """把一則事件推到『已啟用』的 webhook 型管道（各自 best-effort，不影響主流程）。
+
+    `event`：通知矩陣的事件鍵，只發給那一列有勾的通訊軟體；`only`：限定這幾個管道（異常偵測依類別分組送）。
 
     `link` 是站內路徑（跟站內通知的 link 同一個值），這裡換成完整網址、各管道附上「前往檢視」。
     `severity`／`emoji`：聊天型管道的標題前綴（🚨 ⚠️ ℹ️ ✅ 或呼叫端指定的）；通用 webhook 只收 severity 欄位。"""
@@ -366,6 +369,14 @@ async def broadcast_channels(session: AsyncSession, *, subject: str, text: str |
     except Exception:
         return
     enabled = [ch for ch in WEBHOOK_CHANNELS if cfg.get(f"{ch}_enabled")]
+    if only is not None:
+        enabled = [ch for ch in enabled if ch in only]
+    if event and enabled:
+        # 通知矩陣逐一勾選的通訊軟體（10-25）；沒指定事件的呼叫照舊發給全部已啟用的
+        from app.services.system_config import get_notification_matrix
+        row_ch = (await get_notification_matrix(session)).get(event)
+        if row_ch is not None:
+            enabled = [ch for ch in enabled if row_ch.get(ch, row_ch.get("in_app", True))]
     if not enabled:
         return
 

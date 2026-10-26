@@ -42,6 +42,7 @@ from app.services.change_impact import ai as impact_ai
 from app.services.change_impact import jobs, plans, review_policy, reviewers
 from app.services.change_impact.access import (
     Viewer,
+    review_items_hidden,
     same_scope,
     viewer,
     visible_counts,
@@ -405,7 +406,7 @@ async def get_plan(plan_id: uuid.UUID, user: CurrentUser, session: Session) -> d
     out["current_run_expired"] = plans.run_expired(cur) if cur else None
     out["can_edit"] = await plans.can_edit(session, user, plan)
     cfg = await get_config(session)
-    out["can_review"] = (await reviewers.can_review(session, user, plan, cfg))[0]
+    out["can_review"] = plan.archived_at is None and (await reviewers.can_review(session, user, plan, cfg))[0]
     pool = await reviewers.pool(session, plan, cfg)
     out["reviewers"] = [{"id": str(u.id), "name": u.display_name or u.username} for u in pool[:20]]
     out["reviewers_total"] = len(pool)
@@ -420,7 +421,9 @@ async def get_plan(plan_id: uuid.UUID, user: CurrentUser, session: Session) -> d
             Device.id.in_([uuid.UUID(str(x)) for x in also])))).scalars()}  # bounded: at most 20 targets
         out["also_down_labels"] = [names.get(str(x), str(x)[:8]) for x in also]
     review = await plans.latest_review(session, plan)
-    out["latest_review"] = _review_out(review) if review else None
+    reviewer = await session.get(User, review.reviewer_id) if review and review.reviewer_id else None
+    out["latest_review"] = _review_out(review, {reviewer.id: reviewer.display_name or reviewer.username}
+                                       if reviewer else None) if review else None
     return out
 
 
@@ -458,6 +461,12 @@ async def archive_plan(plan_id: uuid.UUID, user: CurrentUser, request: Request, 
         raise HTTPException(403, detail=ui_detail("impact_plan_forbidden", "Not allowed"))
     from datetime import UTC
     plan.archived_at = datetime.now(UTC)
+    # 指向這個計畫的通知（送審、覆核結果）一起清掉：計畫已刪除，留著只會讓人點進去才發現不能做事（2026-10-25）
+    from sqlalchemy import delete as _delete
+
+    from app.models.notification import Notification
+    await session.execute(_delete(Notification).where(Notification.object_type == "change_plan",
+                                                      Notification.object_id == plan.id))
     await _audit(session, request, user, "change_plan_archive", plan.id, {"title": plan.title})
     await session.commit()
     return {"ok": True}
@@ -556,7 +565,10 @@ async def get_run(run_id: uuid.UUID, user: CurrentUser, session: Session) -> dic
     counts = None
     if not same_scope(run, v) and run.job_status in ("completed", "partial"):
         counts = visible_counts(await impact_ai.visible_bundle(session, run, v), run.counts)
-    return _run_out(run, v, counts)
+    out = _run_out(run, v, counts)
+    out["review_items_hidden"] = (run.job_status in ("completed", "partial")
+                                  and await review_items_hidden(session, run, v))
+    return out
 
 
 @router.get("/impact-runs/{run_id}/findings")
@@ -613,7 +625,11 @@ async def run_relations(run_id: uuid.UUID, user: CurrentUser, session: Session,
                                    "label": display_label(f.subject_type, f.subject_label, f.params),
                                    "impact": f.impact, "category": f.category, "root": False,
                                    "subject_id": str(f.subject_id) if f.subject_id else None,
-                                   "kind": (f.params or {}).get("kind"), "rules": [], "evidence": []})
+                                   "kind": (f.params or {}).get("kind"), "rules": [], "evidence": [],
+                                   "blocker": False})
+        # 阻擋項目在圖上要認得出來（2026-10-25 實測：跟其他「可能中斷」長得一樣，審核人看圖找不到）
+        if f.disposition == "blocker":
+            n["blocker"] = True
         if _IMPACT_RANK.get(f.impact, 9) < _IMPACT_RANK.get(n["impact"] or "", 9):
             n["impact"], n["category"] = f.impact, f.category
         # 明細面板：這個物件為什麼出現（規則＋原因參數）與證據來自哪裡、什麼時候看到的
@@ -658,7 +674,8 @@ async def run_relations(run_id: uuid.UUID, user: CurrentUser, session: Session,
             if ref in roots and not visible_ref(ref) and kind != "ip_address":
                 continue
             nodes[ref] = {"id": ref, "type": kind, "label": labels.get(oid, oid[:8]), "impact": None, "category": None,
-                          "root": False, "subject_id": oid, "kind": None, "rules": [], "evidence": []}
+                          "root": False, "subject_id": oid, "kind": None, "rules": [], "evidence": [],
+                          "blocker": False}
     for ref in roots:
         if ref in nodes:
             nodes[ref]["root"] = True
@@ -771,8 +788,9 @@ class ReviewIn(StrictModel):
     run_id: uuid.UUID | None = None
 
 
-def _review_out(r: ImpactReview) -> dict[str, Any]:
+def _review_out(r: ImpactReview, names: dict[Any, str] | None = None) -> dict[str, Any]:
     return {"id": str(r.id), "revision": r.revision, "run_id": str(r.run_id) if r.run_id else None,
+            "reviewer_name": (names or {}).get(r.reviewer_id),
             "snapshot_hash": r.snapshot_hash, "reviewer_id": str(r.reviewer_id) if r.reviewer_id else None,
             "decision": r.decision, "rationale": r.rationale, "dispositions": r.dispositions,
             "step_index": r.step_index, "created_at": _iso(r.created_at)}
@@ -794,7 +812,7 @@ async def create_review(plan_id: uuid.UUID, body: ReviewIn, user: CurrentUser, r
         if (await reviewers.policy(session, cfg))["approver_mode"] == "stages":
             await reviewers.notify_submitted(session, plan, user, cfg)
     else:
-        await reviewers.notify_reviewed(session, plan, user, body.decision)
+        await reviewers.notify_reviewed(session, plan, user, body.decision, body.rationale or "")
     await _audit(session, request, user, "impact_review", plan.id,
                  {"decision": body.decision, "revision": plan.revision, "run_id": str(rv.run_id),
                   "snapshot_hash": rv.snapshot_hash, "lifecycle": plan.lifecycle, "step_index": rv.step_index})
@@ -808,7 +826,12 @@ async def list_reviews(plan_id: uuid.UUID, user: CurrentUser, session: Session) 
     plan = await _plan(session, user, plan_id)
     rows = (await session.execute(select(ImpactReview).where(ImpactReview.plan_id == plan.id)
                                   .order_by(ImpactReview.created_at.desc()))).scalars().all()
-    return {"items": [_review_out(r) for r in rows]}
+    from app.core.sqlin import in_values
+    from app.models.user import User as _User
+    ids = {r.reviewer_id for r in rows if r.reviewer_id}
+    names = {u.id: (u.display_name or u.username) for u in (await session.execute(
+        select(_User).where(in_values(_User.id, list(ids))))).scalars()} if ids else {}
+    return {"items": [_review_out(r, names) for r in rows]}
 
 
 # ─────────────────── 待辦 ───────────────────

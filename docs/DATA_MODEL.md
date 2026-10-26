@@ -69,7 +69,7 @@ Top-level grouping. Self-referential `parent_id` (SET NULL) for nesting; `strict
 ### 2.3 `subnets`
 - `section_id` (CASCADE, required), `master_subnet_id` (self-ref nesting), `cidr` (native `cidr`).
 - `vlan_id`, `vrf_id`, `location_id`, `customer_id`, `gateway` (`inet`), `dns_servers` (comma-separated).
-- `is_pool`, `is_full`, `threshold_pct` (utilization alert), `auto_dns`.
+- `is_pool`, `is_full`, `threshold_pct` (utilization alert), `auto_dns` (reserved, currently unused: jt-ipam does not write to DNS servers).
 - `archived_at`: non-NULL means archived; data is kept but hidden, not scanned, and ignored by overlap checks (archived child IPs are hidden too).
 - **Scanning**: `scan_enabled`, `scan_method` (`text[]`, default `{icmp}`), `scan_agent_id` (FK → scan_agents; if set, the subnet is scanned via that agent rather than the local host), `scan_scope` (`auto` / `all` / `known` / `ranges`, default `auto`; CHECK constraint `ck_subnets_scan_scope`). With `auto`, subnets larger than 4,096 addresses get a scan plan: known addresses every cycle, the rest explored in the background (see `services/scan_plan.py`).
 - `custom_fields` (jsonb). GiST index on `cidr`.

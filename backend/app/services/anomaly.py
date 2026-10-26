@@ -2334,6 +2334,9 @@ _NOTIFY_CATEGORIES: tuple[tuple[str, str, str, str], ...] = (
     ("identity_changes", "類型或 OS 突變", "anomaly.identity_changes", "identity_changes"),
 )
 
+#: 所有異常類別（戰情室 AI 情報的重大事件警示從這裡挑；觀測表的 category 就是這些鍵）
+ALL_CATEGORIES: tuple[str, ...] = tuple(c[0] for c in _NOTIFY_CATEGORIES)
+
 # 排程（只報新的）與手動（報當下全部）是兩句不同的話。共用一句的話，人按了「執行掃描」
 # 會收到「新增 N 筆」—— 那批其實是早就在那裡的舊帳。
 _TITLE_NEW = "notif.anom_new"
@@ -2366,8 +2369,10 @@ async def _notify_categories(
     from app.services.notification import email_users
     from app.services.notify_channels import broadcast_channels
     from app.services.system_config import (
+        NOTIFY_IM_CHANNELS,
         get_anomaly_seen,
         get_notification_matrix,
+        notify_wanted,
         set_anomaly_seen,
     )
 
@@ -2381,7 +2386,7 @@ async def _notify_categories(
     )).scalars().all()
     from app.services.notify_channels import Row, absolute_link
     # 外部管道與 Email 一次偵測只發一則：每一類一列（使用者 2026-10-20：一次洗出四則太亂）
-    channel_rows: list[Row] = []
+    channel_rows: list[tuple[frozenset[str], Row]] = []
     email_lines: list[str] = []
 
     for key, label, lkey, tab in _NOTIFY_CATEGORIES:
@@ -2400,7 +2405,7 @@ async def _notify_categories(
         # 逐類別的通知設定（管理 → 通知發送設定）。十種發現的份量差很多，
         # 全有全無會讓人為了不被吵而整類關掉，連要緊的那幾種一起消失。
         ch = matrix.get(f"anomaly.{key}", {"in_app": True, "email": False})
-        if not count or not (ch.get("in_app") or ch.get("email")):
+        if not count or not notify_wanted(ch):
             continue
         sent += 1
         title = (f"{label}：新增 {count} 筆（共 {total} 筆）" if only_new
@@ -2426,14 +2431,30 @@ async def _notify_categories(
         if ch.get("email"):
             email_lines.append(f"• {label}：{detail}" + (f"　例：{'、'.join(examples)}" + ("…" if more > 0 else "")
                                                           if examples else "") + f"\n  {absolute_link(tab_link)}")
-        channel_rows.append(Row(label=label, detail=detail, codes=examples, more=more > 0,
-                                link=absolute_link(tab_link)))
+        # 這一類要發到哪幾個通訊軟體（通知矩陣逐一勾選，10-25）
+        im = frozenset(c for c in NOTIFY_IM_CHANNELS if ch.get(c, ch.get("in_app", True)))
+        channel_rows.append((im, Row(label=label, detail=detail, codes=examples, more=more > 0,
+                                     link=absolute_link(tab_link))))
 
     if channel_rows:
-        n = len(channel_rows)
-        head = f"異常偵測：{n} 類有新發現" if only_new else f"異常偵測：{n} 類"
-        await broadcast_channels(session, subject=head, link="/anomaly", severity="warning", rows=channel_rows)
+        # 每個通訊軟體只收到它有勾的那幾類：勾的組合相同的管道合成一則送
+        all_ims = set().union(*(im for im, _ in channel_rows))
+        by_set: dict[frozenset[str], list[Row]] = {}
+        for c in all_ims:
+            rows_c = [r for im, r in channel_rows if c in im]
+            key_set = next((k for k, v in by_set.items() if v == rows_c), None)
+            if key_set is None:
+                by_set[frozenset({c})] = rows_c
+            else:
+                by_set[key_set | {c}] = by_set.pop(key_set)
+        for chans, rows_c in by_set.items():
+            n_c = len(rows_c)
+            head_c = f"異常偵測：{n_c} 類有新發現" if only_new else f"異常偵測：{n_c} 類"
+            await broadcast_channels(session, subject=head_c, link="/anomaly", severity="warning", rows=rows_c,
+                                     only=set(chans))
         if email_lines:
+            n = len(email_lines)
+            head = f"異常偵測：{n} 類有新發現" if only_new else f"異常偵測：{n} 類"
             await email_users(session, [a.email for a in admins], f"[jt-ipam] {head}", "\n".join(email_lines),
                               link="/anomaly")
 

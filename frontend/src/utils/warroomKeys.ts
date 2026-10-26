@@ -6,7 +6,7 @@
 
 export type KeyAction =
   | "topic_next" | "topic_prev" | "page_next" | "page_prev" | "first"
-  | "number" | "pause" | "help" | "close";
+  | "number" | "pause" | "pin" | "help" | "close";
 
 /** 顯示用的一列：keys 是鍵帽上的字；range 時 keys = [第一個, 最後一個]，中間畫「–」 */
 export interface KeyRow { keys: string[]; label: string; range?: boolean }
@@ -17,6 +17,7 @@ const ACTIONS: Record<string, KeyAction> = {
   ArrowUp: "page_prev", PageUp: "page_prev",
   Home: "first",
   " ": "pause",
+  p: "pin", P: "pin",                            // 釘選目前主題：照常換資料頁、不換主題（10-26 使用者）
   h: "help", H: "help",                          // 只用 H（10-22 使用者：「改 H 就好，不要用問號」）
   Escape: "close",
 };
@@ -37,6 +38,7 @@ export function warroomKeyRows(topics: number): KeyRow[] {
     { keys: ["↑", "↓", "PgUp", "PgDn"], label: "warroom.keys_page" },
     { keys: ["Home"], label: "warroom.keys_home" },
     { keys: ["Space"], label: "warroom.keys_pause" },
+    { keys: ["P"], label: "warroom.keys_pin" },
     { keys: ["H"], label: "warroom.keys_help" },
     { keys: ["Esc"], label: "warroom.keys_close" },
   ];

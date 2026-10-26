@@ -77,7 +77,7 @@ export function graphToSvg(cy: cytoscape.Core, opts: { bg: string; fg: string })
     out.push(`<polygon points="${p2.x.toFixed(1)},${p2.y.toFixed(1)} ${lx.toFixed(1)},${ly.toFixed(1)} ${rx.toFixed(1)},${ry.toFixed(1)}" fill="${color}"/>`);
     // 線上的字：畫面上有顯示的才畫（連到評估目標的放在靠外側那一端）
     if (e.hasClass("lbl") && e.data("label")) {
-      const text = String(e.data("label"));
+      const text = String(e.data("label")).replace(/\n/g, "、");   // 合併的多種關係在圖上分行，SVG 一行
       let lp: { x: number; y: number };
       if (e.data("toRoot")) {
         const off = Math.min(num(e.style("source-text-offset"), 58), Math.hypot(b.x - a.x, b.y - a.y) / 2);

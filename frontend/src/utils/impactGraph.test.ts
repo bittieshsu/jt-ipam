@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupRelationGraph, ringLayout, subjectLink, treePositions } from "./impactGraph";
+import { groupRelationGraph, mergeParallelEdges, ringLayout, subjectLink, treePositions } from "./impactGraph";
 import type { RelationGraph, RelationNode } from "@/api/changeImpact";
 
 const ROOT: RelationNode = { id: "ip_address:r", type: "ip_address", label: "192.0.2.5", impact: null, root: true };
@@ -163,5 +163,32 @@ describe("ringLayout stagger", () => {
       return Math.min(d, 2 * Math.PI - d);
     })));
     expect(Math.min(...diffs)).toBeGreaterThan(0.15);
+  });
+});
+
+describe("blocker flag", () => {
+  it("keeps the flag on single nodes and lifts it to a group when any member blocks (2026-10-25)", () => {
+    const leaves = Array.from({ length: 6 }, (_v, i) => ({ ...dns(i), blocker: i === 3 }));
+    const g = groupRelationGraph(graph(leaves, leaves.map((n) => ref(n.id))));
+    const grp = g.nodes.find((n) => n.group)!;
+    expect(grp.blocker).toBe(true);
+    expect(g.nodes.find((n) => n.root)!.blocker).toBe(false);
+    const single = groupRelationGraph(graph([{ ...dns(9), blocker: true }], [ref("dns_record:9")]));
+    expect(single.nodes.find((n) => n.id === "dns_record:9")!.blocker).toBe(true);
+  });
+});
+
+describe("mergeParallelEdges", () => {
+  it("draws one line per pair with every relation kept, propagating if any does (2026-10-25)", () => {
+    const m = mergeParallelEdges([
+      { id: "a", from: "service:1", to: "ip_address:r", relation: "references", strength: "explicit", propagates: false },
+      { id: "b", from: "service:1", to: "ip_address:r", relation: "requires_service", strength: "explicit", propagates: true },
+      { id: "c", from: "service:1", to: "ip_address:r", relation: "references", strength: "explicit", propagates: false },
+      { id: "d", from: "text:1", to: "ip_address:r", relation: "references", strength: "inferred", propagates: false },
+    ]);
+    expect(m).toHaveLength(2);
+    expect(m[0].relations).toEqual(["references", "requires_service"]);
+    expect(m[0].propagates).toBe(true);
+    expect(m[1].strength).toBe("inferred");
   });
 });

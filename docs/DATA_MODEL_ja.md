@@ -69,7 +69,7 @@ erDiagram
 ### 2.3 `subnets`
 - `section_id`（CASCADE、必須）、`master_subnet_id`（自己参照の入れ子）、`cidr`（ネイティブの `cidr`）。
 - `vlan_id`、`vrf_id`、`location_id`、`customer_id`、`gateway`（`inet`）、`dns_servers`（カンマ区切り）。
-- `is_pool`、`is_full`、`threshold_pct`（使用率の警告）、`auto_dns`。
+- `is_pool`、`is_full`、`threshold_pct`（使用率の警告）、`auto_dns`（予約済みで現在は未使用：jt-ipam は DNS サーバーに書き込みません）。
 - `archived_at`：非 NULL はアーカイブ済みを意味します。データは保持したまま非表示になり、スキャンもされず、重複チェックの対象からも外れます（配下の IP も併せて非表示になります）。
 - **スキャン**：`scan_enabled`、`scan_method`（`text[]`、既定は `{icmp}`）、`scan_agent_id`（FK → scan_agents。設定されていれば、ローカルホストではなくそのエージェント経由でスキャンします）、`scan_scope`（`auto`・`all`・`known`・`ranges`、既定 `auto`。CHECK 制約 `ck_subnets_scan_scope`）。`auto` では 4,096 アドレスを超えるサブネットにスキャン計画が渡されます：既知のアドレスは毎周、残りはバックグラウンドで探索（`services/scan_plan.py` 参照）。
 - `custom_fields`（jsonb）。`cidr` には GiST の索引があります。

@@ -179,7 +179,7 @@ async def get_agent_key(
     inst = await _or_404(session, server_id)
     raw = await rustdesk_svc.load_agent_key(session, server_id)
     if raw is None:
-        raise HTTPException(404, detail=ui_detail("rustdesk_no_agent_key", "這台伺服器沒有保存代理金鑰，請換一把新的"))
+        raise HTTPException(404, detail=ui_detail("rustdesk_no_agent_key", "這台伺服器沒有儲存代理金鑰，請換一把新的"))
     await _audit(session, user, request, inst, "view_agent_key")
     await session.commit()
     return {"agent_key": raw}

@@ -188,9 +188,13 @@ async def _send(session: AsyncSession, *, event: str, users: list[User], plan: C
     """站內通知＋外部通知管道＋Email（依通知矩陣）。失敗不影響送審或覆核本身。"""
     from app.services.notification import push_notification
     from app.services.notify_channels import broadcast_channels
-    from app.services.system_config import get_notification_channels, get_notification_matrix
+    from app.services.system_config import (
+        get_notification_channels,
+        get_notification_matrix,
+        notify_wanted,
+    )
     mx = (await get_notification_matrix(session)).get(event, {"in_app": True, "email": False})
-    if not users or not (mx.get("in_app") or mx.get("email")):
+    if not users or not notify_wanted(mx):
         return
     link = f"/change-impact/{plan.id}"
     if mx.get("in_app"):
@@ -199,7 +203,7 @@ async def _send(session: AsyncSession, *, event: str, users: list[User], plan: C
                                     title_key=title_key, body_key=body_key, params=params, link=link,
                                     object_type="change_plan", object_id=plan.id)
     try:
-        await broadcast_channels(session, subject=title, text=body, link=link, emoji="📋")
+        await broadcast_channels(session, subject=title, text=body, link=link, emoji="📋", event=event)
     except Exception as exc:     # 外部管道壞了不影響流程
         log.warning("change impact notify channels failed: %s", exc)
     if not mx.get("email"):
@@ -234,16 +238,20 @@ async def notify_submitted(session: AsyncSession, plan: ChangePlan, submitter: A
 _DECISION_ZH = {"approve": "核准", "accept_risk": "接受風險後核准", "request_changes": "退回修改", "reject": "駁回"}
 
 
-async def notify_reviewed(session: AsyncSession, plan: ChangePlan, reviewer: Any, decision: str) -> None:
+async def notify_reviewed(session: AsyncSession, plan: ChangePlan, reviewer: Any, decision: str,
+                          rationale: str = "") -> None:
     if plan.created_by is None or plan.created_by == reviewer.id:
         return
     creator = await session.get(User, plan.created_by)
     if creator is None or not creator.is_active:
         return
-    params = {"title": plan.title, "user": _name(reviewer)}
+    # 理由要跟著通知走（2026-10-25 實測：退回只說「退回了」，申請人要去翻歷史頁籤才知道為什麼）
+    reason = (rationale or "").strip()[:500]
+    params = {"title": plan.title, "user": _name(reviewer), "reason": reason}
     await _send(session, event="change_impact.reviewed", users=[creator], plan=plan,
                 title=f"IP 變更評估已覆核：{plan.title}",
-                body=f"{_name(reviewer)} {_DECISION_ZH.get(decision, decision)}了「{plan.title}」。",
+                body=f"{_name(reviewer)} {_DECISION_ZH.get(decision, decision)}了「{plan.title}」。"
+                     + (f"理由：{reason}" if reason else ""),
                 title_key="notif.change_impact_reviewed",
-                body_key=f"notif.change_impact_reviewed_{decision}", params=params,
+                body_key=f"notif.change_impact_reviewed_{decision}{'_reason' if reason else ''}", params=params,
                 severity="warning" if decision in ("reject", "request_changes") else "info")

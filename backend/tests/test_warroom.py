@@ -229,6 +229,20 @@ async def test_availability_window_setting(client, auth_headers) -> None:
     assert r.json()["availability_window"] == "7d"
 
 
+async def test_transition_and_number_font_settings(client, auth_headers) -> None:
+    """過場效果與大數字字體可在戰情室設定選（10-24）；電視拿到的設定也要帶，不認得的值退回預設。"""
+    got = (await client.get("/api/v1/system/warroom", headers=auth_headers)).json()
+    assert (got["transition"], got["number_font"]) == ("slide", "exo2")   # 預設 Exo 2
+    r = await client.put("/api/v1/system/warroom", json={"transition": "zoom", "number_font": "orbitron"},
+                         headers=auth_headers)
+    assert r.status_code == 200, r.text
+    tv = (await client.get("/api/v1/warroom/config", headers=auth_headers)).json()
+    assert (tv["transition"], tv["number_font"]) == ("zoom", "orbitron")
+    r = await client.put("/api/v1/system/warroom", json={"transition": "spin", "number_font": "comic"},
+                         headers=auth_headers)
+    assert (r.json()["transition"], r.json()["number_font"]) == ("slide", "exo2")
+
+
 async def test_turning_the_war_room_off_blocks_signed_in_users(client, auth_headers) -> None:
     await client.put("/api/v1/system/warroom", json={"enabled": False}, headers=auth_headers)
     r = await client.get("/api/v1/warroom/config", headers=auth_headers)

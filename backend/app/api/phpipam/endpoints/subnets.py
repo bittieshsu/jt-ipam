@@ -14,6 +14,7 @@ from app.api.phpipam.helpers import (
     address_to_phpipam,
     phpipam_current_user,
     phpipam_response,
+    resolve_section,
     subnet_to_phpipam,
 )
 from app.core.db import get_session
@@ -181,10 +182,10 @@ async def create_subnet(
         raise HTTPException(400, detail="subnet, mask, sectionId are required")
 
     cidr = f"{raw_subnet}/{raw_mask}"
-    try:
-        section_id = uuid.UUID(str(raw_section))
-    except ValueError as exc:
-        raise HTTPException(400, detail="Invalid sectionId") from exc
+    sec_obj = await resolve_section(session, raw_section)   # UUID 或數字相容 ID（PVE SDN 送整數）
+    if sec_obj is None:
+        raise HTTPException(400, detail="Invalid sectionId")
+    section_id = sec_obj.id
 
     vlan_id: uuid.UUID | None = None
     if payload.get("vlanId") and str(payload["vlanId"]) != "0":

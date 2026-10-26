@@ -77,7 +77,7 @@ async function above(page: Page, a: string, b: string): Promise<boolean> {
 
 async function open(page: Page, n: number) {
   await page.keyboard.press(String(n));
-  await expect(page.locator(".wr-nav__i.on")).toContainText(String(n).padStart(2, "0"));
+  await expect(page.locator(".wr-nav__i.on")).toHaveAttribute("data-pos", String(n));
   await page.waitForTimeout(400);
 }
 

@@ -178,6 +178,8 @@ function bucketCells(n: number): string[] {
 .svc-q:nth-child(2n) { padding-left: 40px; padding-right: 0; border-left: 1px solid var(--wr-line); }
 .svc-q:nth-child(n+3) { border-bottom: 0; padding-top: 16px; }
 .svc-h { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+/* 標題與頁碼不讓、圖例讓：「DNS 比對群組」曾被圖例擠成兩行、「01 / 04」也折行（10-25） */
+.svc-h > .wr-h2, .svc-h > .wr-index { flex-shrink: 0; white-space: nowrap; }
 .svc-name { font-size: 30px; font-weight: 600; color: var(--wr-ink); }
 .svc-dns__g { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; }
 .dns-mismatch { color: var(--wr-coral); }
@@ -200,7 +202,7 @@ function bucketCells(n: number): string[] {
 .svc-pool__nums { display: flex; gap: 40px; align-items: baseline; margin-top: auto; }
 .svc-k { font-size: 22px; color: var(--wr-muted); margin-right: 16px; }
 .svc-v { font-family: var(--wr-num); font-size: 40px; font-variant-numeric: tabular-nums; }
-.svc-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 18px; color: var(--wr-muted); margin-left: auto; justify-content: flex-end; }
+.svc-legend { display: flex; gap: 6px 16px; flex-wrap: wrap; min-width: 0; flex: 0 1 auto; font-size: 18px; color: var(--wr-muted); margin-left: auto; justify-content: flex-end; }
 .svc-legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .svc-cert__row { display: flex; align-items: baseline; gap: 28px; margin-top: auto; }
 .svc-cert__v { font-size: 120px; font-weight: 600; }

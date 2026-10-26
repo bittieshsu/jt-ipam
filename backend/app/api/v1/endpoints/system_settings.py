@@ -1508,7 +1508,8 @@ def _gather_version_info() -> dict[str, Any]:
               "@xterm/addon-unicode11", "@xterm/addon-web-links",
               "@novnc/novnc", "@iconoir/vue", "@vueuse/core",
               "cytoscape", "cytoscape-cose-bilkent", "fzstd", "qrcode", "tweetnacl", "vfonts", "zod",
-              "@fontsource-variable/inter"]:
+              "@fontsource-variable/inter", "@fontsource-variable/exo-2", "@fontsource-variable/orbitron",
+              "@fontsource/audiowide", "@fontsource/rajdhani", "@fontsource/share-tech-mono"]:
         ver: str | None = None
         try:
             ver = json.loads((fe_root / p / "package.json").read_text(encoding="utf-8")).get("version")
@@ -2046,10 +2047,15 @@ async def get_notification_matrix_ep(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
     """通知矩陣：哪些事件走哪些管道（站內 / Email）。回傳目前設定 + 事件登錄順序。"""
-    from app.services.system_config import NOTIFY_EVENTS, get_notification_matrix
+    from app.services.system_config import (
+        NOTIFY_EVENTS,
+        NOTIFY_IM_CHANNELS,
+        get_notification_matrix,
+    )
     return {
         "matrix": await get_notification_matrix(session),
         "events": [e[0] for e in NOTIFY_EVENTS],
+        "channels": list(NOTIFY_IM_CHANNELS),   # 通訊軟體欄（畫面只顯示已啟用的）
     }
 
 
@@ -2060,7 +2066,11 @@ async def put_notification_matrix_ep(
     session: Annotated[AsyncSession, Depends(get_session)],
     payload: Annotated[dict[str, Any], Body()],
 ) -> dict[str, Any]:
-    from app.services.system_config import NOTIFY_EVENTS, set_notification_matrix
+    from app.services.system_config import (
+        NOTIFY_EVENTS,
+        NOTIFY_IM_CHANNELS,
+        set_notification_matrix,
+    )
     data = payload.get("matrix", payload) if isinstance(payload, dict) else {}
     mx = await set_notification_matrix(session, data=data, updated_by_user_id=user.id)
     await append_audit(
@@ -2072,7 +2082,7 @@ async def put_notification_matrix_ep(
         request_id=getattr(request.state, "request_id", None),
     )
     await session.commit()
-    return {"matrix": mx, "events": [e[0] for e in NOTIFY_EVENTS]}
+    return {"matrix": mx, "events": [e[0] for e in NOTIFY_EVENTS], "channels": list(NOTIFY_IM_CHANNELS)}
 
 
 @router.post("/notification-channels/test-email")

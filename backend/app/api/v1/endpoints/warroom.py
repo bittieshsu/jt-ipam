@@ -77,6 +77,9 @@ async def warroom_config(p: WarroomPrincipal, session: Annotated[AsyncSession, D
         "all_pages": list(wcfg.PAGES), "ready_pages": list(wcfg.READY_PAGES),
         "dwell_seconds": cfg["dwell_seconds"], "max_subpages": cfg["max_subpages"],
         "group_by": cfg["group_by"], "language": cfg["language"], "reduce_motion": cfg["reduce_motion"],
+        "transition": cfg["transition"], "number_font": cfg["number_font"],
+        # 12 AI 情報：顯示用的設定（停留秒數、版面、配色、打字速度…）；背景排程與警示類別電視用不到
+        "intel": {k: v for k, v in cfg["intel"].items() if k not in ("background", "warning_categories")},
         "thresholds": {"warn": cfg["capacity_warn"], "crit": cfg["capacity_crit"]},
         "via": p.via, "is_admin": bool(p.user.is_admin),
         # 管理員或戰情室檢視者：頁首寫「全部站台」而不是「可見範圍」
@@ -129,6 +132,7 @@ async def warroom_page(
         availability,
         capacity,
         collection,
+        intel,
         overview,
         relations,
         services,
@@ -139,7 +143,7 @@ async def warroom_page(
     builders = {"overview": overview.build, "capacity": capacity.build, "topology": topology.build,
                 "services": services.build, "anomalies": anomalies.build, "assets": assets.build,
                 "collection": collection.build, "stats": stats.build, "relations": relations.build,
-                "availability": availability.build, "ai_audit": ai_audit.build}
+                "availability": availability.build, "ai_audit": ai_audit.build, "ai_intel": intel.build}
     if key not in builders:
         raise HTTPException(404, detail=ui_detail("warroom_page_unknown", "unknown war room page", key=key))
     cfg = await wcfg.get_warroom(session)
@@ -156,6 +160,31 @@ async def warroom_page(
             _cache.pop(k, None)
     _cache[ck] = (now, data)
     return data
+
+
+# ─────────────────────────── 12 AI 情報 ───────────────────────────
+
+@router.get("/intel")
+async def intel_state(p: WarroomPrincipal, session: Annotated[AsyncSession, Depends(get_session)],
+                      rev: Annotated[str | None, Query(max_length=40)] = None,
+                      meta: bool = False) -> dict[str, Any]:
+    """畫面每 15 秒讀一次：最新一批（批次 id 跟 rev 不同才帶正文）、產生狀態、下次更新。
+    播放清單有 12 AI 情報的電視（不論正在播哪個主題）都會定期讀，當作「有人在看」的心跳；
+    到期就由後端排一次產生（同一個可見範圍只會有一個在跑）。這個讀取本身不呼叫模型。"""
+    from app.services.warroom import intel
+    cfg = await wcfg.get_warroom(session)
+    out, stream = await intel.state(session, p.user, cfg, rev=rev, meta=meta)
+    await session.commit()
+    if stream is not None:
+        await intel.launch(stream)
+    return out
+
+
+@router.get("/intel/events")
+async def intel_events(p: WarroomPrincipal, session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, Any]:
+    """重大事件（局部 WARNING）：管理員設定的異常類別裡還開著與最近恢復的事件。獨立於 AI 排程。"""
+    from app.services.warroom import intel
+    return await intel.warnings(session, p.user, await wcfg.get_warroom(session))
 
 
 # ─────────────────────────── 管理：設定與顯示權杖 ───────────────────────────
@@ -177,10 +206,14 @@ class WarroomPatch(StrictModel):
     language: str = ""
     reduce_motion: bool = False
     availability_window: str = "7d"
+    transition: str = "slide"
+    number_font: str = "exo2"
     ai_summary: str = "off"
     display_enabled: bool = False
     principal_user_id: str | None = None
     scope: WarroomScope = Field(default_factory=WarroomScope)
+    # 12 AI 情報的設定（欄位多、各自有範圍：交給 config._clean_intel 整理，不合法的退回預設）
+    intel: dict[str, Any] = Field(default_factory=dict)
 
 
 class TokenRotate(StrictModel):
@@ -255,11 +288,52 @@ async def put_settings(payload: WarroomPatch, user: CurrentUser, request: Reques
     cfg = await wcfg.set_warroom(session, data, updated_by_user_id=user.id)
     await append_audit(session, object_type="system_setting", object_id=None, action="update",
                        diff={"setting": "warroom", **{k: data[k] for k in (
-                           "enabled", "pages", "group_by", "display_enabled", "principal_user_id", "scope")}},
+                           "enabled", "pages", "group_by", "display_enabled", "principal_user_id", "scope")},
+                             "intel": cfg["intel"]},
                        **_audit_kw(user, request))
     await session.commit()
     _cache.clear()
     return {**_out(cfg), "scope_labels": await _scope_labels(session, cfg)}
+
+
+@admin_router.post("/intel/generate", status_code=202)
+async def intel_generate(user: CurrentUser, request: Request,
+                         session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, Any]:
+    """「立即產生」：管理員自己的範圍，加上所有正在播的電視（心跳 2 分鐘內）的範圍，都重寫一批。
+
+    冷卻 60 秒；跟排程共用同一個租約，不會重複跑。以前只排管理員自己的範圍，用別的帳號（顯示權杖）
+    開著的電視不會更新（使用者 10-26 問到）。"""
+    from datetime import UTC, datetime
+
+    from app.services.warroom import intel
+    cfg = await wcfg.get_warroom(session)
+    now = datetime.now(UTC)
+    key = await intel.scope_key(session, user, cfg)
+    from sqlalchemy import select
+
+    from app.models.warroom_intel import WarroomIntelStream
+    cur = (await session.execute(select(WarroomIntelStream).where(WarroomIntelStream.scope_key == key))).scalars().first()
+    if cur is not None and cur.manual_at and now - cur.manual_at < intel.MANUAL_COOLDOWN:
+        wait = int((intel.MANUAL_COOLDOWN - (now - cur.manual_at)).total_seconds()) + 1
+        raise HTTPException(429, detail=ui_detail("warroom_intel_cooldown", "please wait before generating again",
+                                                  seconds=wait), headers={"Retry-After": str(wait)})
+    stream, mine = await intel.touch(session, user, cfg, now=now, force=True)
+    stream.manual_at = now
+    others = (await session.execute(select(WarroomIntelStream).where(
+        WarroomIntelStream.id != stream.id,
+        WarroomIntelStream.last_viewed_at >= now - intel.VIEW_GRACE))).scalars().all()
+    launch = [stream] if mine else []
+    for o in others:
+        o.manual_at, o.next_due_at = now, now
+        if await intel._acquire(session, o, now):
+            launch.append(o)
+    await append_audit(session, object_type="system_setting", object_id=None, action="warroom_intel_generate",
+                       diff={"setting": "warroom", "scope_key": key[:12], "streams": 1 + len(others)},
+                       **_audit_kw(user, request))
+    await session.commit()
+    for st in launch:
+        await intel.launch(st)
+    return {"started": mine, "streams": 1 + len(others)}
 
 
 @admin_router.post("/token")

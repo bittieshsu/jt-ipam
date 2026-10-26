@@ -28,6 +28,7 @@ import {
 } from "@/api/ip_requests";
 import { listSubnets } from "@/api/subnets";
 import { autoSort } from "@/composables/useTableSort";
+import { fmtDateTime } from "@/utils/datetime";
 import ColumnPicker from "@/components/ColumnPicker.vue";
 import { useColumnPrefs } from "@/composables/useColumnPrefs";
 import { useEntityLinks } from "@/composables/useEntityLinks";
@@ -38,12 +39,13 @@ const { t } = useI18n();
 const { visibleKeys: rqVis, setVisible: rqSet, reset: rqReset,
   order: rqOrder, setOrder: rqSetOrder, orderColumns: rqOrderCols } = useColumnPrefs(
   "ip_requests",
-  ["status", "subnet_id", "hostname", "purpose", "created_at"],
-  ["status", "subnet_id", "hostname", "purpose", "created_at"],
+  ["status", "subnet_id", "requested_ip", "hostname", "purpose", "created_at"],
+  ["status", "subnet_id", "requested_ip", "hostname", "purpose", "created_at"],
 );
 const rqPicker = computed(() => [
   { key: "status", label: t("cols.status") },
   { key: "subnet_id", label: t("cols.subnet") },
+  { key: "requested_ip", label: t("requests.col_requested_ip") },
   { key: "hostname", label: t("cols.hostname") },
   { key: "purpose", label: t("cols.purpose") },
   { key: "created_at", label: t("cols.created_at") },
@@ -97,9 +99,13 @@ const allColumns = computed<DataTableColumns<IPRequest>>(() => autoSort([
   },
   { title: t("requests.col_subnet"),   key: "subnet_id", width: 160,
     render: (r) => links.subnet(r.subnet_id, r.subnet_cidr ?? (r.subnet_id.slice(0, 8) + "…")) },
+  // 申請的位址（2026-10-25：清單以前看不到申請的是哪個 IP，要點進去才知道）；沒指定的由核准時自動配發
+  { title: t("requests.col_requested_ip"), key: "requested_ip", width: 150,
+    render: (r) => r.requested_ip ?? "—" },
   { title: t("requests.col_hostname"), key: "hostname", minWidth: 180, ellipsis: { tooltip: true }, render: (r) => r.hostname ?? "—" },
   { title: t("requests.col_purpose"),  key: "purpose", minWidth: 200, ellipsis: { tooltip: true } },
-  { title: t("requests.col_created"),  key: "created_at", width: 180 },
+  // 以前直接印 ISO 字串（2026-10-25T14:31:24.439278Z），改成跟其他頁一樣的本地時間
+  { title: t("requests.col_created"),  key: "created_at", width: 180, render: (r) => fmtDateTime(r.created_at) },
   {
     title: t("common.actions"), key: "actions", width: 150,
     render: (r) => r.can_approve

@@ -1,4 +1,4 @@
-# jt-ipam v1.0.15
+# jt-ipam v1.0.16
 
 [![License](https://img.shields.io/github/license/jasoncheng7115/jt-ipam?color=blue)](LICENSE)
 [![Last commit](https://img.shields.io/github/last-commit/jasoncheng7115/jt-ipam)](https://github.com/jasoncheng7115/jt-ipam/commits/main)
@@ -21,7 +21,7 @@
 
 phpIPAM の利用者がその日から使えるよう操作の流れを揃えつつ、現代的な技術スタックでゼロから作り直しています（phpIPAM のコードは使っていません）。連携が中核です。
 
-- **DNS**：PowerDNS、BIND 9、OPNsense Unbound、Univention UCS、Microsoft Windows DNS、Technitium DNS Server（正引き・逆引きの状態を読み取り、レコードの書き込みも選択可。Technitium は読み取りのみ。Windows DNS は WinRM で、既定は NTLM 暗号化を強制した HTTP 5985、HTTPS 5986 も可）
+- **DNS**：PowerDNS、BIND 9、OPNsense Unbound、Univention UCS、Microsoft Windows DNS、Technitium DNS Server（読み取りのみ：正引き・逆引きのレコードと整合性を読み取り、DNS サーバーには書き込みません。Windows DNS は WinRM で、既定は NTLM 暗号化を強制した HTTP 5985、HTTPS 5986 も可）
 - **LibreNMS**：機器の同期、ARP / FDB の収集、死活状態の突き合わせ、監視への自動登録
 - **SNMP 収集（スキャンエージェント）**：LibreNMS のないネットワーク向けに、サブネットを担当するスキャンエージェントが、割り当てたネットワーク機器を読み取り専用の SNMP v2c/v3 で読みます（認証情報は一元管理し、API では返しません）。ルーターの ARP テーブルでルーター越しに見えない MAC を補い、スイッチの MAC テーブル（Q-BRIDGE / BRIDGE-MIB、Cisco は VLAN ごと）でホストの接続ポートを特定し、LLDP / CDP のネイバーでトポロジーにスイッチ間のリンクを描き、インターフェイスを機器ポートにします。エージェントのインストーラーは net-snmp のクライアントツール（`snmp` / `net-snmp-utils` / `net-snmp-tools`）も導入します
 - **Zabbix**：監視面を補う読み取り専用の連携です。ホストと IP の対応、実効状態の根拠としての死活、メンテナンス期間、そして**監視の抜け**（IPAM がホスト名を持っているのに Zabbix が見ていないアドレス）が分かります。ARP と FDB は Zabbix の標準データに含まれないため、引き続き LibreNMS が担当します

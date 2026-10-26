@@ -95,7 +95,7 @@ async def _notify_requester(
             await email_users(session, [u.email], f"[jt-ipam] {title}", body or title,
                               link=f"/requests/{request.id}")
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body, link=f"/requests/{request.id}", emoji="📝")
+    await broadcast_channels(session, subject=title, text=body, link=f"/requests/{request.id}", emoji="📝", event=event)
 
 
 async def _deliver_to_approvers(
@@ -117,7 +117,8 @@ async def _deliver_to_approvers(
     from app.services.system_config import get_notification_matrix
     mx = (await get_notification_matrix(session)).get(
         "ip_request.created", {"in_app": True, "email": True})
-    if not (mx.get("in_app") or mx.get("email")):
+    from app.services.system_config import notify_wanted
+    if not notify_wanted(mx):
         return
     link = f"/requests/{request.id}"  # 站內鈴鐺用相對路徑（前端 router 解析）
     # Email 用絕對網址：未登入點了會先被導去登入頁，登入成功再回到此審核頁（router next 機制）
@@ -130,7 +131,7 @@ async def _deliver_to_approvers(
                 link=link, object_type="ip_request", object_id=request.id,
             )
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body, link=link, emoji="📝")
+    await broadcast_channels(session, subject=title, text=body, link=link, emoji="📝", event="ip_request.created")
     if not mx.get("email"):
         return
     try:

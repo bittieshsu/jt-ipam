@@ -25,7 +25,7 @@ GROUP_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("audit", ("audit_logs",)),
     ("notifications", ("notifications",)),
     ("change_impact", ("impact_", "change_plan", "change_tasks")),
-    ("ai", ("ai_",)),
+    ("ai", ("ai_", "warroom_intel_")),
     ("reference", ("oui_vendors", "recog_databases")),
     ("dns_dhcp", ("dns_", "dhcp_", "kea_", "isc_dhcp", "windows_dhcp", "technitium_", "isoinsight_", "adguard_",
                   "checkpoint_dhcp", "external_dns_")),

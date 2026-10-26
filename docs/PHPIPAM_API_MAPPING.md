@@ -79,15 +79,20 @@
 | `GET /addresses/{ip}/{subnetId}/` | by IP + subnet |
 | `GET /addresses/search/{ip}/` | global search |
 | `GET /addresses/search_hostname/{hostname}/` | by hostname |
+| `GET /addresses/search_mac/{mac}/` | by MAC (any spelling) |
 | `GET /addresses/first_free/{subnetId}/` | first free |
 | `GET /addresses/custom_fields/` | custom field definitions |
 | `GET /addresses/tags/` | status tags |
 | `GET /addresses/tags/{id}/addresses/` | all IPs with a given status |
 | `POST /addresses/` | create |
 | `POST /addresses/first_free/` | allocate first free |
+| `POST /addresses/first_free/{subnetId}/` | claim the next free address, returns the IP string (Proxmox VE SDN) |
 | `PATCH /addresses/{id}/` | update |
 | `DELETE /addresses/{id}/` | delete |
 | `DELETE /addresses/{ip}/{subnetId}/` | delete by IP+subnet |
+
+> **Proxmox VE SDN (phpIPAM plugin):** trailing slashes are optional and never redirect; a section can be given by UUID, name or its numeric compatible ID (`compatId`, shown on the section page), because PVE only accepts an integer section. `is_gateway: 1` on POST/PATCH addresses sets the subnet gateway. Verified on 2026-10-24 against the plugin's actual calls.
+
 
 **Maps to internal model**: `IPAddress`. Note phpIPAM calls "status" a tag.
 

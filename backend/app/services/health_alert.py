@@ -61,7 +61,8 @@ async def _notify(
     （實際被回報過）。郵件與外部管道沒有「當前語言」可言，仍用寫好的字串。"""
     ch = (await get_notification_matrix(session)).get(
         event, {"in_app": True, "email": False})
-    if not (ch.get("in_app") or ch.get("email")):
+    from app.services.system_config import notify_wanted
+    if not notify_wanted(ch):
         return
     admins = await _admins(session)
     if ch.get("in_app"):
@@ -74,7 +75,7 @@ async def _notify(
         from app.services.notification import email_users
         await email_users(session, [a.email for a in admins], f"[jt-ipam] {title}", body, link=link)
     from app.services.notify_channels import broadcast_channels
-    await broadcast_channels(session, subject=title, text=body, link=link, severity=severity)
+    await broadcast_channels(session, subject=title, text=body, link=link, severity=severity, event=event)
 
 
 async def check_integration_health(

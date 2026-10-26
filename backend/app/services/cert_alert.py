@@ -51,7 +51,7 @@ async def check_cert_alerts(
         return {"expiry": 0, "drift": 0}
 
     from app.services.notification import email_users
-    from app.services.system_config import get_notification_matrix
+    from app.services.system_config import get_notification_matrix, notify_wanted
     matrix = await get_notification_matrix(session)
     exp_ch = matrix.get("cert.expiring", {"in_app": True, "email": False})
     drift_ch = matrix.get("cert.drift", {"in_app": True, "email": False})
@@ -75,7 +75,7 @@ async def check_cert_alerts(
         threshold = cert.expiry_warn_days if cert.expiry_warn_days is not None else default_days
         if days > threshold:
             continue
-        if not (exp_ch.get("in_app") or exp_ch.get("email")):
+        if not notify_wanted(exp_ch):
             continue
         if await _recently_notified(session, cert.id, since):
             continue
@@ -98,7 +98,7 @@ async def check_cert_alerts(
             await email_users(session, admin_emails, f"[jt-ipam] {title}", body, link="/certificates")
         from app.services.notify_channels import broadcast_channels
         await broadcast_channels(session, subject=title, text=body, link="/certificates",
-                                 severity="error" if expired else "warning")
+                                 severity="error" if expired else "warning", event="cert.expiring")
         expiry += 1
 
     drift = 0
@@ -112,7 +112,7 @@ async def check_cert_alerts(
             cid = name_id.get(cname)
             if not (want and fp and cid) or fp == want:
                 continue
-            if not (drift_ch.get("in_app") or drift_ch.get("email")):
+            if not notify_wanted(drift_ch):
                 continue
             if await _recently_notified(session, cid, since):
                 continue
@@ -131,7 +131,8 @@ async def check_cert_alerts(
             if drift_ch.get("email"):
                 await email_users(session, admin_emails, f"[jt-ipam] {dtitle}", dbody, link="/certificates")
             from app.services.notify_channels import broadcast_channels
-            await broadcast_channels(session, subject=dtitle, text=dbody, link="/certificates", severity="warning")
+            await broadcast_channels(session, subject=dtitle, text=dbody, link="/certificates", severity="warning",
+                                     event="cert.drift")
             drift += 1
 
     return {"expiry": expiry, "drift": drift}

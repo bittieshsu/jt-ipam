@@ -15,7 +15,7 @@ const CHECK_MS = 180_000;
 const RETRY_MS = 30_000;
 const RESUME_MAX_AGE_MS = 10 * 60_000;
 
-export interface ResumeState { key: string; page: number; paused: boolean }
+export interface ResumeState { key: string; page: number; paused: boolean; pinned?: boolean }
 
 export function saveResume(s: ResumeState): void {
   try { sessionStorage.setItem(RESUME_KEY, JSON.stringify({ ...s, at: Date.now() })); } catch { /* 封鎖儲存：就從頭播 */ }
@@ -30,7 +30,7 @@ export function takeResume(now = Date.now()): ResumeState | null {
     const v = JSON.parse(raw) as ResumeState & { at?: number };
     if (!v || typeof v.key !== "string" || typeof v.page !== "number") return null;
     if (!v.at || now - v.at > RESUME_MAX_AGE_MS) return null;
-    return { key: v.key, page: Math.max(1, Math.floor(v.page)), paused: !!v.paused };
+    return { key: v.key, page: Math.max(1, Math.floor(v.page)), paused: !!v.paused, pinned: !!v.pinned };
   } catch {
     return null;
   }

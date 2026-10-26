@@ -48,6 +48,8 @@ export interface Step { key: string; page: number }
  */
 export function nextStep(playlist: string[], cur: Step, pages: number, maxSubpages: number): Step {
   if (!playlist.length) return cur;
+  // 管理員把正在播的主題從播放清單拿掉了（設定會在換頁時重讀）：回到第一個
+  if (!playlist.includes(cur.key)) return { key: playlist[0], page: 1 };
   const limit = Math.max(1, Math.min(pages, maxSubpages));
   if (cur.page < limit) return { key: cur.key, page: cur.page + 1 };
   const i = playlist.indexOf(cur.key);

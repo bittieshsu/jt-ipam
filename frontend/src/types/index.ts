@@ -50,6 +50,8 @@ export interface Section {
   strict_mode: boolean;
   display_order: number;
   subnet_count: number;
+  /** 數字的相容 ID：phpIPAM 相容 API、Proxmox VE SDN 的「區段」欄位填這個 */
+  compat_id?: number | null;
   customer_id: string | null;
   /** 主控台的連線出口（issue #24）：空＝繼承上層或直連 */
   jump_host_id?: string | null;

@@ -41,7 +41,7 @@ export interface ImpactRun {
   id: string; plan_id: string; plan_revision: number; job_status: JobStatus; stage: string | null;
   decision_status: "blocked" | "needs_review" | "no_known_blocker" | null;
   completeness: "complete" | "partial" | "failed" | null;
-  scope_manifest: { sources?: { kind: string; name: string; freshness: string; last_sync_at: string | null }[];
+  scope_manifest: { sources?: { kind: string; id?: string; name: string; freshness: string; last_sync_at: string | null }[];
                     permission_limited?: string[]; roots?: string[]; new_ip?: string | null;
                     target_subnet?: string | null; cross_subnet?: boolean;
                     observed_from?: string | null; observed_to?: string | null };
@@ -50,6 +50,8 @@ export interface ImpactRun {
   rules_version: string | null; attempt: number; started_at: string | null; completed_at: string | null;
   expires_at: string | null; truncated: boolean; truncation: { what: string; limit: number; stage: string } | null;
   error_code: string | null; created_at: string; cancel_requested: boolean; permission_scope_changed?: boolean;
+  /** 這次分析有沒有我看不到的需覆核項目（有的話我不能核准，只說有、不說幾項） */
+  review_items_hidden?: boolean;
 }
 export interface ImpactFinding {
   id: string; rule_id: string; rule_version: string; category: string; subject_type: string;
@@ -78,6 +80,8 @@ export interface ChangeTask {
 export interface ImpactReview {
   id: string; revision: number; run_id: string | null; snapshot_hash: string | null; reviewer_id: string | null;
   decision: "approve" | "reject" | "accept_risk" | "request_changes"; rationale: string;
+  /** 審核人顯示名稱（2026-10-25 起） */
+  reviewer_name?: string | null;
   dispositions: Record<string, { action: string; note: string }>; created_at: string;
 }
 export interface AIItem { text?: string; code?: string; params?: Record<string, any>; finding_ids?: string[];
@@ -251,7 +255,9 @@ export interface RelationNode { id: string; type: string; label: string; impact:
   /** 明細面板：原始物件 id、整合類型、為什麼列出來（規則＋原因參數）、證據來源與時間 */
   subject_id?: string | null; kind?: string | null;
   rules?: { rule_id: string; reason: string; params: Record<string, unknown>; impact: string }[];
-  evidence?: RelationEvidence[] }
+  evidence?: RelationEvidence[];
+  /** 這個物件有阻擋項目（圖上紅框；2026-10-25） */
+  blocker?: boolean }
 export interface RelationGraph { nodes: RelationNode[]; edges: { from: string; to: string; relation: string; strength: string }[];
   truncated: boolean; total_nodes: number; limit: number }
 export async function getRunRelations(runId: string, limit = 100): Promise<RelationGraph> {

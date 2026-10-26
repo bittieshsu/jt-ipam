@@ -52,6 +52,7 @@ UNLISTED: dict[str, str] = {
     "oui_admin": "從系統設定進去的 OUI 資料庫頁",
     "recog_admin": "從系統設定進去的 Recog 指紋庫頁",
     "notifications": "右上角通知鈴鐺的「全部通知」",
+    "not_found": "網址打錯或物件已刪除時顯示的「找不到頁面」，不是可以走到的頁面",
 }
 
 #: 右上角帳號選單的名稱（選單本身是使用者名稱，沒有 i18n 字串）
